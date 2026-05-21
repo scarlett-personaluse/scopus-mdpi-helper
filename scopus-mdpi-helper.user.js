@@ -269,32 +269,18 @@
     const name = params.get("geName");
     if (!name) return;
 
-    const searchKey = "retraction_searched_" + name;
+    const searchKey = "retraction_direct_search_" + name;
     if (sessionStorage.getItem(searchKey)) return;
     sessionStorage.setItem(searchKey, "1");
 
-    waitForElement(findRetractionInput, input => {
-        fillInput(input, name);
+    const encodedName = encodeURIComponent(name).replace(/%20/g, "+");
 
-        setTimeout(() => {
-            const btn = findRetractionSearchButton();
+    const targetUrl =
+        `https://retractiondatabase.org/RetractionSearch.aspx?geName=${encodedName}#?geName%3d${encodedName}%26auth%3d${encodedName}`;
 
-            if (btn) {
-                btn.click();
-            } else {
-                input.dispatchEvent(new KeyboardEvent("keydown", {
-                    key: "Enter",
-                    code: "Enter",
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true
-                }));
-
-                const form = input.closest("form");
-                if (form) form.submit();
-            }
-        }, 300);
-    }, 3000);
+    if (window.location.href !== targetUrl) {
+        window.location.replace(targetUrl);
+    }
 }
 
     function waitForElement(getter, callback, timeout = 3000) {
