@@ -1,4 +1,5 @@
 // ==UserScript==
+// @author       Jiali Tang
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
 // @version      5.3
