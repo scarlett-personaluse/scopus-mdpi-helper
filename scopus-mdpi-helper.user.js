@@ -269,20 +269,18 @@
     const name = params.get("geName");
     if (!name) return;
 
-    const searchKey = "retraction_direct_search_" + name;
-    if (sessionStorage.getItem(searchKey)) return;
-    sessionStorage.setItem(searchKey, "1");
+    // 如果已经是最终结果页，就不要再执行任何动作
+    if (window.location.hash.includes("auth%3d") || window.location.hash.includes("auth=")) {
+        return;
+    }
 
     const encodedName = encodeURIComponent(name).replace(/%20/g, "+");
 
     const targetUrl =
         `https://retractiondatabase.org/RetractionSearch.aspx?geName=${encodedName}#?geName%3d${encodedName}%26auth%3d${encodedName}`;
 
-    if (window.location.href !== targetUrl) {
-        window.location.replace(targetUrl);
-    }
+    window.location.replace(targetUrl);
 }
-
     function waitForElement(getter, callback, timeout = 3000) {
         const start = Date.now();
 
