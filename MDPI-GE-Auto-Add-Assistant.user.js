@@ -878,26 +878,9 @@ function moveToNextSI() {
         });
     }
 
-  function clickElement(el) {
+function clickElement(el) {
     if (!el) return;
-
-    el.scrollIntoView({
-        behavior: "instant",
-        block: "center",
-        inline: "center"
-    });
-
-    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(type => {
-        el.dispatchEvent(new MouseEvent(type, {
-            bubbles: true,
-            cancelable: true,
-            view: window
-        }));
-    });
-
-    if (typeof el.click === "function") {
-        el.click();
-    }
+    el.click();
 }
 
     function fillInput(input, value) {
