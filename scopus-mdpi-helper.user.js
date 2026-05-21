@@ -264,23 +264,38 @@
         return;
     }
 
-    function runRetractionPage() {
-        const params = new URLSearchParams(window.location.search);
-        const name = params.get("geName");
-        if (!name) return;
+   function runRetractionPage() {
+    const params = new URLSearchParams(window.location.search);
+    const name = params.get("geName");
+    if (!name) return;
 
-        const searchKey = "retraction_searched_" + name;
-        if (sessionStorage.getItem(searchKey)) return;
-        sessionStorage.setItem(searchKey, "1");
+    const searchKey = "retraction_searched_" + name;
+    if (sessionStorage.getItem(searchKey)) return;
+    sessionStorage.setItem(searchKey, "1");
 
-        waitForElement(findRetractionInput, input => {
-            fillInput(input, name);
+    waitForElement(findRetractionInput, input => {
+        fillInput(input, name);
 
-            waitForElement(findRetractionSearchButton, btn => {
+        setTimeout(() => {
+            const btn = findRetractionSearchButton();
+
+            if (btn) {
                 btn.click();
-            }, 3000);
-        }, 3000);
-    }
+            } else {
+                input.dispatchEvent(new KeyboardEvent("keydown", {
+                    key: "Enter",
+                    code: "Enter",
+                    keyCode: 13,
+                    which: 13,
+                    bubbles: true
+                }));
+
+                const form = input.closest("form");
+                if (form) form.submit();
+            }
+        }, 300);
+    }, 3000);
+}
 
     function waitForElement(getter, callback, timeout = 3000) {
         const start = Date.now();
