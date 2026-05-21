@@ -3,7 +3,7 @@
 // @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @description  Scopus quick screening + floating MDPI button beside selected email
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -332,29 +332,65 @@
 
     function runMdpiPage() {
 
-        const params = new URLSearchParams(window.location.search);
-        const email = params.get("geEmail");
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get("geEmail");
 
-        if (!email) return;
+    if (!email) return;
 
-        window.addEventListener("load", () => {
+    window.addEventListener("load", () => {
+
+        setTimeout(() => {
+
+            const input = findEmailInput();
+
+            if (!input) {
+                GM_setClipboard(email);
+                alert("Email copied, but the E-Mail input box was not found.");
+                return;
+            }
+
+            fillInput(input, email);
 
             setTimeout(() => {
 
-                const input = findEmailInput();
+                const buttons = Array.from(
+                    document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+                );
 
-                if (!input) {
+                const nextButtons = buttons.filter(el => {
+                    const text = (el.innerText || el.value || "").trim().toLowerCase();
+                    return text === "next";
+                });
 
-                    GM_setClipboard(email);
+                if (!nextButtons.length) {
+                    alert("Email filled, but Next button was not found.");
                     return;
-
                 }
 
-                fillInput(input, email);
+                const inputRect = input.getBoundingClientRect();
 
-            }, 1200);
-        });
-    }
+                nextButtons.sort((a, b) => {
+                    const ra = a.getBoundingClientRect();
+                    const rb = b.getBoundingClientRect();
+
+                    const da =
+                        Math.abs(ra.top - inputRect.bottom) +
+                        Math.abs(ra.left - inputRect.left);
+
+                    const db =
+                        Math.abs(rb.top - inputRect.bottom) +
+                        Math.abs(rb.left - inputRect.left);
+
+                    return da - db;
+                });
+
+                nextButtons[0].click();
+
+            }, 600);
+
+        }, 1200);
+    });
+}
 
     // =========================
     // PubPeer 页面
