@@ -1,6 +1,6 @@
 // ==UserScript==
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes SI Title Matcher.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes SI Title Matcher.user.js
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
 // @name         Processes SI Title Matcher
 // @namespace    http://tampermonkey.net/
 // @version      3.0
