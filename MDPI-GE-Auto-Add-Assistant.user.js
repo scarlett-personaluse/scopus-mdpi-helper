@@ -745,12 +745,8 @@
         }, 250);
     }
 
- function waitAfterProceed(siId, email) {
-    let ticks = 0;
-
-    const timer = setInterval(() => {
-        ticks++;
-
+function waitAfterProceed(siId, email) {
+    setTimeout(() => {
         const lower = (document.body.innerText || "").toLowerCase();
 
         const full =
@@ -759,8 +755,6 @@
             lower.includes("proposed ge cannot exceed 5");
 
         if (full) {
-            clearInterval(timer);
-
             markSIFull(siId);
             moveToNextSI();
 
@@ -776,49 +770,19 @@
             return;
         }
 
-        const success =
-            lower.includes("successfully added") ||
-            lower.includes("added successfully") ||
-            lower.includes("successfully proposed") ||
-            lower.includes("proposed ge has been added") ||
-            lower.includes("guest editor has been added");
+        incrementSICount(siId);
+        addUsedEmail(email, "Proceed clicked");
 
-        if (success) {
-            clearInterval(timer);
+        record(siId, email, {
+            status: "PROCEED_CLICKED",
+            eligible: true,
+            reason: "Proceed clicked; continue to next GE",
+            pageUrl: location.href
+        });
 
-            incrementSICount(siId);
-            addUsedEmail(email, "Proceed confirmed");
-
-            record(siId, email, {
-                status: "PROCEED_CONFIRMED",
-                eligible: true,
-                reason: "Proceed confirmed by success message",
-                pageUrl: location.href
-            });
-
-            log(`Proceed confirmed for SI ${siId}, ${email}.`);
-            setTimeout(dispatchNext, 1200);
-            return;
-        }
-
-        if (ticks >= 24) {
-            clearInterval(timer);
-
-            record(siId, email, {
-                status: "PROCEED_UNCONFIRMED",
-                eligible: false,
-                reason: "Proceed clicked but no success confirmation detected",
-                pageUrl: location.href
-            });
-
-            log(`Proceed clicked but not confirmed: SI ${siId}, ${email}. Please check manually.`);
-
-            // 这里不要计数，也不要把邮箱标记 used
-            // 避免误认为已经加成功
-            setTimeout(dispatchNext, 1200);
-        }
-
-    }, 250);
+        log(`Proceed handled for SI ${siId}, ${email}.`);
+        setTimeout(dispatchNext, 1200);
+    }, 1200);
 }
 
     function detectNegative(lower) {
