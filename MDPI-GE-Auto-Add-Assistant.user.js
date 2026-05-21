@@ -745,64 +745,81 @@
         }, 250);
     }
 
-    function waitAfterProceed(siId, email) {
-        let ticks = 0;
+ function waitAfterProceed(siId, email) {
+    let ticks = 0;
 
-        const timer = setInterval(() => {
-            ticks++;
+    const timer = setInterval(() => {
+        ticks++;
 
-            const lower = (document.body.innerText || "").toLowerCase();
+        const lower = (document.body.innerText || "").toLowerCase();
 
-            const success =
-                lower.includes("success") ||
-                lower.includes("successfully") ||
-                lower.includes("proposed guest editor") ||
-                lower.includes("update referee") ||
-                lower.includes(email.toLowerCase());
+        const full =
+            lower.includes("number of proposed ge cannot exceed 5") ||
+            lower.includes("cannot exceed 5 at most in each special issue") ||
+            lower.includes("proposed ge cannot exceed 5");
 
-            const full =
-                lower.includes("number of proposed ge cannot exceed 5") ||
-                lower.includes("cannot exceed 5 at most in each special issue") ||
-                lower.includes("proposed ge cannot exceed 5");
+        if (full) {
+            clearInterval(timer);
 
-            if (full) {
-                clearInterval(timer);
+            markSIFull(siId);
+            moveToNextSI();
 
-                markSIFull(siId);
-                moveToNextSI();
+            record(siId, email, {
+                status: "SI_FULL",
+                eligible: false,
+                reason: "SI became full after Proceed click",
+                pageUrl: location.href
+            });
 
-                record(siId, email, {
-                    status: "SI_FULL",
-                    eligible: false,
-                    reason: "SI became full after Proceed click",
-                    pageUrl: location.href
-                });
+            log(`SI ${siId} full after Proceed. Email not marked used.`);
+            setTimeout(dispatchNext, 800);
+            return;
+        }
 
-                log(`SI ${siId} full after Proceed. Email not marked used.`);
+        const success =
+            lower.includes("successfully added") ||
+            lower.includes("added successfully") ||
+            lower.includes("successfully proposed") ||
+            lower.includes("proposed ge has been added") ||
+            lower.includes("guest editor has been added");
 
-                setTimeout(dispatchNext, 800);
-                return;
-            }
+        if (success) {
+            clearInterval(timer);
 
-            if (success || ticks >= 16) {
-                clearInterval(timer);
+            incrementSICount(siId);
+            addUsedEmail(email, "Proceed confirmed");
 
-                incrementSICount(siId);
-                addUsedEmail(email, "Proceed clicked");
+            record(siId, email, {
+                status: "PROCEED_CONFIRMED",
+                eligible: true,
+                reason: "Proceed confirmed by success message",
+                pageUrl: location.href
+            });
 
-                record(siId, email, {
-                    status: success ? "PROCEED_CONFIRMED" : "PROCEED_CLICKED",
-                    eligible: true,
-                    reason: success ? "Proceed click confirmed by page signal" : "Proceed clicked; confirmation not detected but continuing",
-                    pageUrl: location.href
-                });
+            log(`Proceed confirmed for SI ${siId}, ${email}.`);
+            setTimeout(dispatchNext, 1200);
+            return;
+        }
 
-                log(`Proceed handled for SI ${siId}, ${email}.`);
+        if (ticks >= 24) {
+            clearInterval(timer);
 
-                setTimeout(dispatchNext, 1200);
-            }
-        }, 250);
-    }
+            record(siId, email, {
+                status: "PROCEED_UNCONFIRMED",
+                eligible: false,
+                reason: "Proceed clicked but no success confirmation detected",
+                pageUrl: location.href
+            });
+
+            log(`Proceed clicked but not confirmed: SI ${siId}, ${email}. Please check manually.`);
+
+            // 这里不要计数，也不要把邮箱标记 used
+            // 避免误认为已经加成功
+            setTimeout(dispatchNext, 1200);
+        }
+
+    }, 250);
+}
 
     function detectNegative(lower) {
         if (
