@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.5
-// @description  Scopus quick screening + floating MDPI button beside selected email
+// @version      6.0
+// @description  Scopus quick screening + instant MDPI/PubPeer/Retraction automation
 // @author       Jiali Tang
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -260,6 +260,49 @@
         }, 3000);
     }
 
+    function runPubPeerPage() {
+        const params = new URLSearchParams(window.location.search);
+        const q = params.get("q");
+        if (!q) return;
+
+        const searchKey = "pubpeer_searched_" + q;
+        if (sessionStorage.getItem(searchKey)) return;
+        sessionStorage.setItem(searchKey, "1");
+
+        waitForElement(findSearchInput, input => {
+            fillInput(input, q);
+
+            waitForElement(() => {
+                return findButtonByText(["Search"]) ||
+                    document.querySelector("button[type='submit'], input[type='submit']");
+            }, btn => {
+                btn.click();
+            }, 3000);
+        }, 3000);
+    }
+
+    function runRetractionPage() {
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get("geName");
+        if (!name) return;
+
+        const searchKey = "retraction_searched_" + name;
+        if (sessionStorage.getItem(searchKey)) return;
+        sessionStorage.setItem(searchKey, "1");
+
+        waitForElement(findRetractionInput, input => {
+            fillInput(input, name);
+
+            waitForElement(() => {
+                return document.querySelector("input[type='submit']") ||
+                    document.querySelector("button[type='submit']") ||
+                    findButtonByText(["Search", "Submit", "Go"]);
+            }, btn => {
+                btn.click();
+            }, 3000);
+        }, 3000);
+    }
+
     function waitForElement(getter, callback, timeout = 3000) {
         const start = Date.now();
 
@@ -326,61 +369,6 @@
         if (closeBtn) closeBtn.click();
     }
 
-    function runPubPeerPage() {
-        const params = new URLSearchParams(window.location.search);
-        const q = params.get("q");
-        if (!q) return;
-
-        const searchKey = "pubpeer_searched_" + q;
-        if (sessionStorage.getItem(searchKey)) return;
-        sessionStorage.setItem(searchKey, "1");
-
-        window.addEventListener("load", () => {
-            setTimeout(() => {
-                const input = findSearchInput();
-
-                if (input) fillInput(input, q);
-
-                const btn =
-                    findButtonByText(["Search"]) ||
-                    document.querySelector("button[type='submit'], input[type='submit']");
-
-                if (btn) btn.click();
-            }, 800);
-        });
-    }
-
-    function runRetractionPage() {
-        const params = new URLSearchParams(window.location.search);
-        const name = params.get("geName");
-        if (!name) return;
-
-        const searchKey = "retraction_searched_" + name;
-        if (sessionStorage.getItem(searchKey)) return;
-        sessionStorage.setItem(searchKey, "1");
-
-        window.addEventListener("load", () => {
-            setTimeout(() => {
-                const input = findRetractionInput();
-                if (!input) return;
-
-                fillInput(input, name);
-
-                const btn =
-                    document.querySelector("input[type='submit']") ||
-                    document.querySelector("button[type='submit']") ||
-                    findButtonByText(["Search", "Submit", "Go"]);
-
-                if (btn) {
-                    btn.click();
-                } else {
-                    const form = input.closest("form");
-                    if (form) form.submit();
-                }
-            }, 1500);
-        });
-    }
-
     function findEmailInput() {
         const selectors = [
             "input[type='email']",
@@ -405,7 +393,7 @@
             const parent = emailLabel.closest("tr, div, form") || document.body;
             const input = parent.querySelector("input[type='text'], input:not([type])");
 
-            if (input && !input.disabled && el.offsetParent !== null) return input;
+            if (input && !input.disabled && input.offsetParent !== null) return input;
         }
 
         return null;
