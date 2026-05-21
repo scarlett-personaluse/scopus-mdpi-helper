@@ -673,26 +673,24 @@
         log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
     }
 
-    function detectNegative(lower) {
-        const signals = [
-            "already invited",
-            "has been invited",
-            "not allowed",
-            "not allow",
-            "cannot be invited",
-            "can not be invited",
-            "not eligible",
-            "denylist",
-            "blacklist",
-            "duplicate",
-            "not found",
-            "no record",
-            "past 90 days",
-            "past 90"
-        ];
+function detectNegative(lower) {
+    const signals = [
+        "already invited",
+        "has been invited",
+        "not allowed",
+        "not allow",
+        "cannot be invited",
+        "can not be invited",
+        "not eligible",
+        "duplicate",
+        "not found",
+        "no record",
+        "past 90 days",
+        "past 90"
+    ];
 
-        return signals.find(s => lower.includes(s)) || "";
-    }
+    return signals.find(s => lower.includes(s)) || "";
+}
 
     function record(siId, email, data) {
         const results = getJSON(LS_RESULTS, {});
