@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      3.2
+// @version      3.5
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
 // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
