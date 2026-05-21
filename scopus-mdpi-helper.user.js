@@ -1,9 +1,9 @@
 // ==UserScript==
-// @author       Jiali Tang
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.5
 // @description  Scopus quick screening + floating MDPI button beside selected email
+// @author       Jiali Tang
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
 // @match        https://susy.mdpi.com/special_issue/process/1877901*
@@ -205,7 +205,6 @@
                 setTimeout(() => {
                     const selection = window.getSelection();
                     const selectedText = selection.toString().trim();
-
                     const emailMatch = selectedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
 
                     if (!emailMatch || selection.rangeCount === 0) {
@@ -246,35 +245,37 @@
         const email = params.get("geEmail");
         if (!email) return;
 
-        window.addEventListener("load", () => {
-            setTimeout(() => {
-                closeMdpiPopup();
+        closeMdpiPopup();
 
-                const input = findEmailInput();
+        waitForElement(findEmailInput, input => {
+            fillInput(input, email);
 
-                if (!input) {
-                    GM_setClipboard(email);
-                    alert("Email copied, but the E-Mail input box was not found.");
-                    return;
-                }
+            waitForElement(() => findCorrectNextButton(input), nextBtn => {
+                nextBtn.click();
 
-                fillInput(input, email);
+                setTimeout(closeMdpiPopup, 300);
+                setTimeout(closeMdpiPopup, 800);
+                setTimeout(closeMdpiPopup, 1500);
+            }, 3000);
+        }, 3000);
+    }
 
-                setTimeout(() => {
-                    const nextBtn = findCorrectNextButton(input);
+    function waitForElement(getter, callback, timeout = 3000) {
+        const start = Date.now();
 
-                    if (nextBtn) {
-                        nextBtn.click();
-                        setTimeout(closeMdpiPopup, 800);
-                        setTimeout(closeMdpiPopup, 1500);
-                        setTimeout(closeMdpiPopup, 2500);
-                    } else {
-                        alert("Email filled, but the correct Next button was not found.");
-                    }
-                }, 200);
+        const timer = setInterval(() => {
+            const el = getter();
 
-            }, 200);
-        });
+            if (el) {
+                clearInterval(timer);
+                callback(el);
+                return;
+            }
+
+            if (Date.now() - start > timeout) {
+                clearInterval(timer);
+            }
+        }, 50);
     }
 
     function findCorrectNextButton(input) {
@@ -404,7 +405,7 @@
             const parent = emailLabel.closest("tr, div, form") || document.body;
             const input = parent.querySelector("input[type='text'], input:not([type])");
 
-            if (input && !input.disabled && input.offsetParent !== null) return input;
+            if (input && !input.disabled && el.offsetParent !== null) return input;
         }
 
         return null;
