@@ -1,18 +1,15 @@
 // ==UserScript==
-// @downloadURL  https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
-// @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
-// @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
-// @namespace    http://tampermonkey.net/
-// @version      4.4
-// @description  Scopus quick screening + floating MDPI button beside selected email
-// @match        https://www.scopus.com/authid/detail.uri?*
-// @match        https://www2.scopus.com/authid/detail.uri?*
-// @match        https://susy.mdpi.com/special_issue/process/1877901*
-// @match        https://pubpeer.org/*
-// @match        https://retractiondatabase.org/RetractionSearch.aspx*
+// @name         Processes SI Title Matcher
+// @namespace    Processes-SI-Title-Matcher
+// @version      3.1
+// @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
-// @connect      www.scopus.com
+// @connect      api.deepseek.com
+// @connect      gist.githubusercontent.com
 // ==/UserScript==
 
 (function () {
