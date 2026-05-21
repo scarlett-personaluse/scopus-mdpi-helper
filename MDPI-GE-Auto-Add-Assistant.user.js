@@ -144,12 +144,22 @@
             updateStatus();
         };
 
-        document.getElementById("gea-close").onclick = e => {
-            e.preventDefault();
-            e.stopPropagation();
-            panel.style.display = "none";
-            mini.style.display = "block";
-        };
+document.getElementById("gea-close").onclick = e => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const panel = document.getElementById("gea-panel");
+    const mini = document.getElementById("gea-mini");
+
+    if (panel) panel.style.display = "none";
+
+    if (mini) {
+        mini.style.display = "block";
+        mini.style.visibility = "visible";
+        mini.style.opacity = "1";
+        mini.style.pointerEvents = "auto";
+    }
+};
 
         const autoBox = document.getElementById("gea-auto-proceed");
         autoBox.checked = localStorage.getItem(LS_AUTO_PROCEED) === "1";
