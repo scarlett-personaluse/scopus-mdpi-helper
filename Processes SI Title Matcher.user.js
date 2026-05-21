@@ -1,7 +1,9 @@
 // ==UserScript==
+// @downloadURL  https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/Processes SI Title Matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/Processes SI Title Matcher.user.js
 // @name         Processes SI Title Matcher
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      3.0
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
