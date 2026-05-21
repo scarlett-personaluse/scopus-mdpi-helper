@@ -3,7 +3,7 @@
 // @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  Scopus quick screening + floating MDPI button beside selected email
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -341,6 +341,8 @@
 
         setTimeout(() => {
 
+            closeMdpiPopup();
+
             const input = findEmailInput();
 
             if (!input) {
@@ -348,6 +350,85 @@
                 alert("Email copied, but the E-Mail input box was not found.");
                 return;
             }
+
+            fillInput(input, email);
+
+            setTimeout(() => {
+
+                const nextBtn = findCorrectNextButton(input);
+
+                if (nextBtn) {
+                    nextBtn.click();
+
+                    setTimeout(closeMdpiPopup, 800);
+                    setTimeout(closeMdpiPopup, 1500);
+                    setTimeout(closeMdpiPopup, 2500);
+                } else {
+                    alert("Email filled, but the correct Next button was not found.");
+                }
+
+            }, 600);
+
+        }, 1200);
+    });
+}
+
+function findCorrectNextButton(input) {
+
+    const buttons = Array.from(
+        document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+    );
+
+    const nextButtons = buttons.filter(el => {
+        const text = (el.innerText || el.value || "").trim().toLowerCase();
+        return text === "next";
+    });
+
+    if (!nextButtons.length) return null;
+
+    const inputRect = input.getBoundingClientRect();
+
+    nextButtons.sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+
+        const da =
+            Math.abs(ra.top - inputRect.bottom) +
+            Math.abs(ra.left - inputRect.left);
+
+        const db =
+            Math.abs(rb.top - inputRect.bottom) +
+            Math.abs(rb.left - inputRect.left);
+
+        return da - db;
+    });
+
+    return nextButtons[0];
+}
+
+function closeMdpiPopup() {
+
+    const candidates = Array.from(
+        document.querySelectorAll("button, a, span, div")
+    );
+
+    const closeBtn = candidates.find(el => {
+        const text = (el.innerText || el.textContent || "").trim();
+        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+        const cls = (el.className || "").toString().toLowerCase();
+
+        return (
+            text === "×" ||
+            text === "x" ||
+            aria.includes("close") ||
+            cls.includes("close")
+        );
+    });
+
+    if (closeBtn) {
+        closeBtn.click();
+    }
+}
 
             fillInput(input, email);
 
