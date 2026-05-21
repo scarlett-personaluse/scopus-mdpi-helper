@@ -360,38 +360,45 @@
     // PubPeer 页面
     // =========================
 
-    function runPubPeerPage() {
+    function runMdpiPage() {
 
-        const params = new URLSearchParams(window.location.search);
-        const q = params.get("q");
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get("geEmail");
 
-        if (!q) return;
+    if (!email) return;
 
-        const searchKey = "pubpeer_searched_" + q;
+    window.addEventListener("load", () => {
 
-        if (sessionStorage.getItem(searchKey)) return;
+        setTimeout(() => {
 
-        sessionStorage.setItem(searchKey, "1");
+            const input = findEmailInput();
 
-        window.addEventListener("load", () => {
+            if (!input) {
+                GM_setClipboard(email);
+                return;
+            }
+
+            fillInput(input, email);
 
             setTimeout(() => {
+                const nextBtn = findButtonByText([
+                    "Next",
+                    "Search",
+                    "Submit",
+                    "Continue"
+                ]);
 
-                const input = findSearchInput();
-
-                if (input) {
-                    fillInput(input, q);
+                if (nextBtn) {
+                    nextBtn.click();
+                } else {
+                    const form = input.closest("form");
+                    if (form) form.submit();
                 }
+            }, 500);
 
-                const btn =
-                    findButtonByText(["Search"]) ||
-                    document.querySelector("button[type='submit'], input[type='submit']");
-
-                if (btn) btn.click();
-
-            }, 800);
-        });
-    }
+        }, 1200);
+    });
+}
 
     // =========================
     // Retraction 页面
