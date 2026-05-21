@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round Stable
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.6
-// @description  Stable Multi-SI GE auto-add assistant: Next -> Proceed or skip; keep GE index when switching SI.
+// @version      3.7
+// @description  Multi-SI GE auto-add assistant: stable Next/Proceed clicking, keep GE index when switching SI.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -17,16 +17,16 @@
     const UNLOCK_DAYS = 90;
     const NO_PROCEED_TIMEOUT_TICKS = 40;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v36";
-    const LS_SI_QUEUE = "mdpi_si_queue_v36";
-    const LS_RESULTS = "mdpi_ge_results_v36";
-    const LS_RUNNING = "mdpi_ge_running_v36";
-    const LS_LOG = "mdpi_ge_log_v36";
-    const LS_SI_INDEX = "mdpi_si_index_v36";
-    const LS_GE_INDEX = "mdpi_ge_index_v36";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v36";
-    const LS_CURRENT = "mdpi_current_task_v36";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v36";
+    const LS_GE_POOL = "mdpi_ge_pool_v37";
+    const LS_SI_QUEUE = "mdpi_si_queue_v37";
+    const LS_RESULTS = "mdpi_ge_results_v37";
+    const LS_RUNNING = "mdpi_ge_running_v37";
+    const LS_LOG = "mdpi_ge_log_v37";
+    const LS_SI_INDEX = "mdpi_si_index_v37";
+    const LS_GE_INDEX = "mdpi_ge_index_v37";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v37";
+    const LS_CURRENT = "mdpi_current_task_v37";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v37";
 
     ready(() => {
         createPanel();
@@ -94,7 +94,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；每轮每个邮箱只处理一次；每个 SI 最多 Proceed 5 次；换 SI 后继续后续邮箱。
+                    默认自动 Proceed；Next / Proceed 使用稳定点击方式；每个邮箱本轮只处理一次；每个 SI 最多 Proceed 5 次；换 SI 后继续后续邮箱。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -496,7 +496,6 @@
                 if (!shouldUseGE(ge, usedEmails)) continue;
 
                 const key = makeResultKey(si.id, ge.email);
-
                 if (results[key]?.checkedAt) continue;
 
                 const current = {
@@ -512,7 +511,6 @@
                 updateStatus();
 
                 location.href = `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
-
                 return;
             }
 
@@ -625,8 +623,8 @@
 
             waitForElement(() => findButtonByText("next"), nextBtn => {
                 log("Click Next");
-                nextBtn.click();
-                waitForProceedOrFailure(siId, email);
+                clickElement(nextBtn);
+                waitForProceedOrSkip(siId, email);
             }, 10000, () => {
                 addUsedEmail(email, "FAILED_NO_NEXT");
 
@@ -653,13 +651,12 @@
         });
     }
 
-    function waitForProceedOrFailure(siId, email) {
+    function waitForProceedOrSkip(siId, email) {
         let count = 0;
 
         const timer = setInterval(() => {
             count++;
 
-            const proceedBtn = findButtonByText("proceed");
             const lower = (document.body.innerText || "").toLowerCase();
 
             if (
@@ -683,12 +680,14 @@
                 return;
             }
 
+            const proceedBtn = findButtonByText("proceed");
+
             if (proceedBtn) {
                 clearInterval(timer);
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
 
-                proceedBtn.click();
+                clickElement(proceedBtn);
 
                 incrementSICount(siId);
                 addUsedEmail(email, "Proceed clicked");
@@ -767,21 +766,14 @@
         let bestScore = -999;
 
         inputs.forEach(input => {
-            const ph = (input.getAttribute("placeholder") || "").toLowerCase();
-            const name = (input.getAttribute("name") || "").toLowerCase();
-            const id = (input.getAttribute("id") || "").toLowerCase();
-            const type = (input.getAttribute("type") || "").toLowerCase();
-            const context = ((input.closest("tr, div, form") || {}).innerText || "").toLowerCase();
+            const name = (input.name || "").toLowerCase();
+            const id = (input.id || "").toLowerCase();
+            const type = (input.type || "").toLowerCase();
 
             let score = 0;
 
             if (type === "email") score += 80;
             if (name.includes("email") || id.includes("email")) score += 70;
-            if (context.includes("* e-mail") || context.includes("e-mail")) score += 60;
-
-            if (ph.includes("user e-mail")) score -= 200;
-            if (ph.includes("quick find")) score -= 200;
-            if (context.includes("user overview")) score -= 120;
 
             if (score > bestScore) {
                 bestScore = score;
@@ -789,7 +781,7 @@
             }
         });
 
-        return bestScore > -50 ? best : null;
+        return best;
     }
 
     function findButtonByText(text) {
@@ -801,8 +793,14 @@
 
         return candidates.find(el => {
             const t = (el.innerText || el.value || "").trim().toLowerCase();
-            return t === target || t.includes(target);
+            return t === target;
         });
+    }
+
+    function clickElement(el) {
+        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        el.click();
     }
 
     function fillInput(input, value) {
@@ -818,8 +816,6 @@
 
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-        input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
     }
 
     function waitForElement(getter, callback, timeout = 8000, onTimeout = null) {
