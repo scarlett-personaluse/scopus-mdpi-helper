@@ -1,4 +1,5 @@
 // ==UserScript==
+// @author       Jiali Tang
 // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
 // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
 // @name         Processes SI Title Matcher
