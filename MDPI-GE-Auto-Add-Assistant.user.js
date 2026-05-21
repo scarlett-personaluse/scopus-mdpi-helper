@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         MDPI GE Auto-Add Assistant Ultimate Stable
+// @name         MDPI GE Auto-Add Assistant Multi-SI Round
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      2.2
-// @description  Stable GE screening + semi-auto proceed + draggable/minimizable UI
+// @version      3.0
+// @description  Import GE CSV, load pending SI queue, and add up to 5 GE per SI per round.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -12,30 +12,25 @@
 (function () {
     'use strict';
 
-    /**********************
-     * CONFIG
-     **********************/
-    const TEST_SI_URL = "https://susy.mdpi.com/special_issue/process/1877901";
+    const PENDING_LIST_URL = "https://susy.mdpi.com/special_issue_pending/list?page_limit=100&sort_field=special_issue_pending.date_update&sort=DESC";
+    const MAX_PROCEED_PER_SI_PER_ROUND = 5;
     const UNLOCK_DAYS = 90;
 
-    /**********************
-     * STORAGE KEYS
-     **********************/
-    const LS_GE_POOL = "mdpi_ge_pool_v22";
-    const LS_RESULTS = "mdpi_ge_results_v22";
-    const LS_QUEUE = "mdpi_ge_queue_v22";
-    const LS_RUNNING = "mdpi_ge_running_v22";
-    const LS_AUTO_PROCEED = "mdpi_ge_auto_proceed_v22";
-    const LS_CURRENT = "mdpi_ge_current_v22";
-    const LS_LOG = "mdpi_ge_log_v22";
+    const LS_GE_POOL = "mdpi_ge_pool_v30";
+    const LS_SI_QUEUE = "mdpi_si_queue_v30";
+    const LS_RESULTS = "mdpi_ge_results_v30";
+    const LS_RUNNING = "mdpi_ge_running_v30";
+    const LS_AUTO_PROCEED = "mdpi_ge_auto_proceed_v30";
+    const LS_LOG = "mdpi_ge_log_v30";
+    const LS_SI_INDEX = "mdpi_si_index_v30";
+    const LS_GE_INDEX = "mdpi_ge_index_v30";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v30";
+    const LS_CURRENT = "mdpi_current_task_v30";
 
-    /**********************
-     * INIT
-     **********************/
     ready(() => {
         createPanel();
 
-        if (location.href.includes("/special_issue/process/1877901")) {
+        if (location.href.includes("/special_issue/process/")) {
             runOnSIPage();
         }
     });
@@ -48,9 +43,6 @@
         }
     }
 
-    /**********************
-     * PANEL
-     **********************/
     function createPanel() {
         if (document.getElementById("gea-panel")) return;
 
@@ -80,8 +72,8 @@
             position: "fixed",
             right: "18px",
             bottom: "88px",
-            width: "470px",
-            maxHeight: "82vh",
+            width: "500px",
+            maxHeight: "84vh",
             overflow: "auto",
             zIndex: "1000000",
             background: "#fff",
@@ -93,115 +85,41 @@
         });
 
         panel.innerHTML = `
-            <div id="gea-drag-header"
-                style="
-                    background:#eb2f96;
-                    color:white;
-                    padding:10px 12px;
-                    font-weight:700;
-                    display:flex;
-                    justify-content:space-between;
-                    align-items:center;
-                    cursor:move;
-                    user-select:none;
-                ">
-
-                <span>MDPI GE Assistant</span>
-
-                <button id="gea-close"
-                    style="
-                        border:none;
-                        background:white;
-                        color:#eb2f96;
-                        border-radius:6px;
-                        cursor:pointer;
-                        font-weight:700;
-                        padding:3px 10px;
-                    ">
-                    Minimize
-                </button>
+            <div id="gea-drag-header" style="background:#eb2f96;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:move;user-select:none;">
+                <span>MDPI GE Multi-SI Assistant</span>
+                <button id="gea-close" style="border:none;background:white;color:#eb2f96;border-radius:6px;cursor:pointer;font-weight:700;padding:3px 10px;">Minimize</button>
             </div>
 
             <div style="padding:12px;font-size:13px;">
-
                 <label style="display:block;margin-bottom:8px;color:#a8071a;font-weight:700;">
                     <input type="checkbox" id="gea-auto-proceed">
                     Auto Proceed Mode
                 </label>
 
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    OFF = only detect Proceed.
-                    ON = automatically click Proceed.
+                    每一轮中，每个 SI 最多 Proceed 5 次。开启新一轮后，每个 SI 会重新计数。
                 </div>
 
-                <input type="file" id="gea-file" accept=".csv"
-                    style="margin-bottom:6px;width:100%;">
+                <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
 
-                <button class="gea-btn" id="gea-import-btn">
-                    Import CSV Text
-                </button>
+                <button class="gea-btn" id="gea-import-btn">Import CSV Text</button>
+                <button class="gea-btn" id="gea-open-list-btn">Open Pending SI List</button>
+                <button class="gea-btn" id="gea-load-si-btn">Load SI Queue from Current Page</button>
+                <button class="gea-btn" id="gea-new-round-btn">Start New Round</button>
+                <button class="gea-btn" id="gea-resume-btn">Resume Current Round</button>
+                <button class="gea-btn" id="gea-stop-btn">Stop</button>
+                <button class="gea-btn" id="gea-export-btn">Export Results</button>
+                <button class="gea-btn danger" id="gea-clear-btn">Clear Local Data</button>
 
-                <button class="gea-btn" id="gea-start-btn">
-                    Start Eligible Screening / Add
-                </button>
+                <textarea id="gea-csv" placeholder="Paste CSV here if not using file upload." style="width:100%;height:95px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
 
-                <button class="gea-btn" id="gea-force-btn">
-                    Force Screen All Imported GE
-                </button>
+                <div id="gea-status" style="margin-top:8px;padding:8px;background:#fff0f6;border:1px solid #ffd6e7;border-radius:8px;font-size:12px;white-space:pre-wrap;color:#333;"></div>
 
-                <button class="gea-btn" id="gea-stop-btn">
-                    Stop
-                </button>
-
-                <button class="gea-btn" id="gea-export-btn">
-                    Export Results
-                </button>
-
-                <button class="gea-btn danger" id="gea-clear-btn">
-                    Clear Local Data
-                </button>
-
-                <textarea id="gea-csv"
-                    placeholder="Paste CSV here if not using file upload."
-                    style="
-                        width:100%;
-                        height:100px;
-                        margin-top:8px;
-                        border:1px solid #ccc;
-                        border-radius:8px;
-                        padding:8px;
-                        font-size:12px;
-                    "></textarea>
-
-                <div id="gea-status"
-                    style="
-                        margin-top:8px;
-                        padding:8px;
-                        background:#fff0f6;
-                        border:1px solid #ffd6e7;
-                        border-radius:8px;
-                        font-size:12px;
-                        white-space:pre-wrap;
-                        color:#333;
-                    ">
-                </div>
-
-                <textarea id="gea-output"
-                    style="
-                        width:100%;
-                        height:230px;
-                        margin-top:8px;
-                        border:1px solid #ccc;
-                        border-radius:8px;
-                        padding:8px;
-                        font-size:12px;
-                    "></textarea>
-
+                <textarea id="gea-output" style="width:100%;height:230px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
             </div>
         `;
 
         const style = document.createElement("style");
-
         style.textContent = `
             .gea-btn {
                 width:100%;
@@ -214,36 +132,23 @@
                 cursor:pointer;
                 text-align:left;
             }
-
-            .gea-btn:hover {
-                background:#ffd6e7;
-            }
-
-            .gea-btn.danger {
-                background:#fff1f0;
-                color:#a8071a;
-            }
+            .gea-btn:hover { background:#ffd6e7; }
+            .gea-btn.danger { background:#fff1f0;color:#a8071a; }
         `;
 
         document.head.appendChild(style);
         document.body.appendChild(mini);
         document.body.appendChild(panel);
 
-        /**********************
-         * MINIMIZE FIX
-         **********************/
         mini.onclick = () => {
             mini.style.setProperty("display", "none", "important");
-
             panel.style.setProperty("display", "block", "important");
             panel.style.setProperty("visibility", "visible", "important");
             panel.style.setProperty("pointer-events", "auto", "important");
-
             updateStatus();
         };
 
         const closeBtn = document.getElementById("gea-close");
-
         closeBtn.addEventListener("mousedown", e => {
             e.preventDefault();
             e.stopPropagation();
@@ -265,95 +170,43 @@
             mini.style.setProperty("z-index", "1000001", "important");
         }, true);
 
-        /**********************
-         * AUTO PROCEED
-         **********************/
         const autoBox = document.getElementById("gea-auto-proceed");
-
-        autoBox.checked =
-            localStorage.getItem(LS_AUTO_PROCEED) === "1";
-
+        autoBox.checked = localStorage.getItem(LS_AUTO_PROCEED) === "1";
         autoBox.onchange = () => {
-            localStorage.setItem(
-                LS_AUTO_PROCEED,
-                autoBox.checked ? "1" : "0"
-            );
-
-            log(
-                autoBox.checked
-                    ? "Auto Proceed enabled."
-                    : "Auto Proceed disabled."
-            );
-
+            localStorage.setItem(LS_AUTO_PROCEED, autoBox.checked ? "1" : "0");
+            log(autoBox.checked ? "Auto Proceed ON." : "Auto Proceed OFF.");
             updateStatus();
         };
 
-        /**********************
-         * BUTTON EVENTS
-         **********************/
-        document.getElementById("gea-file").onchange =
-            importCSVFile;
+        document.getElementById("gea-file").onchange = importCSVFile;
+        document.getElementById("gea-import-btn").onclick = importCSVText;
+        document.getElementById("gea-open-list-btn").onclick = () => location.href = PENDING_LIST_URL;
+        document.getElementById("gea-load-si-btn").onclick = loadSIQueueFromCurrentPage;
+        document.getElementById("gea-new-round-btn").onclick = startNewRound;
+        document.getElementById("gea-resume-btn").onclick = resumeRound;
+        document.getElementById("gea-stop-btn").onclick = stopRun;
+        document.getElementById("gea-export-btn").onclick = exportResults;
+        document.getElementById("gea-clear-btn").onclick = clearData;
 
-        document.getElementById("gea-import-btn").onclick =
-            importCSVText;
-
-        document.getElementById("gea-start-btn").onclick =
-            () => startRun(false);
-
-        document.getElementById("gea-force-btn").onclick =
-            () => startRun(true);
-
-        document.getElementById("gea-stop-btn").onclick =
-            stopRun;
-
-        document.getElementById("gea-export-btn").onclick =
-            exportResults;
-
-        document.getElementById("gea-clear-btn").onclick =
-            clearData;
-
-        /**********************
-         * DRAG
-         **********************/
-        makeDraggable(
-            panel,
-            document.getElementById("gea-drag-header")
-        );
-
+        makeDraggable(panel, document.getElementById("gea-drag-header"));
         updateStatus();
     }
 
-    /**********************
-     * DRAGGABLE
-     **********************/
     function makeDraggable(panel, handle) {
         let dragging = false;
         let offsetX = 0;
         let offsetY = 0;
 
         handle.addEventListener("mousedown", e => {
-
-            if (
-                e.target.id === "gea-close"
-            ) return;
+            if (e.target.id === "gea-close") return;
 
             dragging = true;
+            const rect = panel.getBoundingClientRect();
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
 
-            const rect =
-                panel.getBoundingClientRect();
-
-            offsetX =
-                e.clientX - rect.left;
-
-            offsetY =
-                e.clientY - rect.top;
-
-            panel.style.left =
-                rect.left + "px";
-
-            panel.style.top =
-                rect.top + "px";
-
+            panel.style.left = rect.left + "px";
+            panel.style.top = rect.top + "px";
             panel.style.right = "auto";
             panel.style.bottom = "auto";
 
@@ -361,521 +214,528 @@
         });
 
         document.addEventListener("mousemove", e => {
-
             if (!dragging) return;
-
-            panel.style.left =
-                `${e.clientX - offsetX}px`;
-
-            panel.style.top =
-                `${e.clientY - offsetY}px`;
+            panel.style.left = `${e.clientX - offsetX}px`;
+            panel.style.top = `${e.clientY - offsetY}px`;
         });
 
-        document.addEventListener("mouseup", () => {
-            dragging = false;
-        });
+        document.addEventListener("mouseup", () => dragging = false);
     }
 
-    /**********************
-     * STATUS + LOG
-     **********************/
     function updateStatus(extra = "") {
+        const pool = getJSON(LS_GE_POOL, []);
+        const siQueue = getJSON(LS_SI_QUEUE, []);
+        const results = getJSON(LS_RESULTS, {});
+        const counts = getJSON(LS_SI_COUNTS, {});
+        const running = localStorage.getItem(LS_RUNNING) === "1";
+        const auto = localStorage.getItem(LS_AUTO_PROCEED) === "1";
+        const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+        const geIndex = Number(localStorage.getItem(LS_GE_INDEX) || 0);
+        const current = getJSON(LS_CURRENT, null);
 
-        const pool =
-            getJSON(LS_GE_POOL, []);
+        const rows = Object.values(results);
+        const clicked = rows.filter(r => r.status === "PROCEED_CLICKED").length;
+        const canProceed = rows.filter(r => r.status === "CAN_PROCEED").length;
+        const failed = rows.filter(r => String(r.status || "").startsWith("FAILED")).length;
+        const notEligible = rows.filter(r => r.status === "NOT_ELIGIBLE").length;
 
-        const results =
-            getJSON(LS_RESULTS, {});
-
-        const queue =
-            getJSON(LS_QUEUE, []);
-
-        const running =
-            localStorage.getItem(LS_RUNNING) === "1";
-
-        const auto =
-            localStorage.getItem(LS_AUTO_PROCEED) === "1";
-
-        const current =
-            localStorage.getItem(LS_CURRENT) || "-";
-
-        const rows =
-            Object.values(results);
-
-        const canProceed =
-            rows.filter(r => r.status === "CAN_PROCEED").length;
-
-        const clicked =
-            rows.filter(r =>
-                r.status === "PROCEED_CLICKED"
-            ).length;
-
-        const failed =
-            rows.filter(r =>
-                String(r.status || "").startsWith("FAILED")
-            ).length;
+        const currentSI = siQueue[siIndex];
+        const currentSICount = currentSI ? (counts[currentSI.id] || 0) : 0;
 
         const text = [
             `GE pool: ${pool.length}`,
-            `Checked: ${rows.length}`,
-            `Can Proceed: ${canProceed}`,
-            `Proceed clicked: ${clicked}`,
+            `SI queue: ${siQueue.length}`,
+            `Current SI index: ${siIndex + 1}/${siQueue.length}`,
+            `Current GE index: ${geIndex + 1}/${pool.length}`,
+            `Current SI Proceed count this round: ${currentSICount}/${MAX_PROCEED_PER_SI_PER_ROUND}`,
+            `Proceed clicked this round: ${clicked}`,
+            `Can Proceed but not clicked: ${canProceed}`,
+            `Not eligible: ${notEligible}`,
             `Failed: ${failed}`,
-            `Queue: ${queue.length}`,
-            `Current: ${current}`,
             `Running: ${running ? "Yes" : "No"}`,
             `Auto Proceed: ${auto ? "ON" : "OFF"}`,
+            current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
 
-        const status =
-            document.getElementById("gea-status");
+        const status = document.getElementById("gea-status");
+        if (status) status.textContent = text;
 
-        if (status)
-            status.textContent = text;
+        const mini = document.getElementById("gea-mini");
+        if (mini) mini.textContent = running ? `GE Running (${siIndex + 1}/${siQueue.length})` : "GE Assistant";
 
-        const mini =
-            document.getElementById("gea-mini");
-
-        if (mini) {
-            mini.textContent =
-                running
-                    ? `GE Running (${queue.length})`
-                    : "GE Assistant";
-        }
-
-        const out =
-            document.getElementById("gea-output");
-
-        if (out)
-            out.value = getLogText();
+        const out = document.getElementById("gea-output");
+        if (out) out.value = getLogText();
     }
 
     function log(msg) {
-        const arr =
-            getJSON(LS_LOG, []);
-
-        arr.unshift(
-            `[${new Date().toLocaleTimeString()}] ${msg}`
-        );
-
-        localStorage.setItem(
-            LS_LOG,
-            JSON.stringify(arr.slice(0, 120))
-        );
+        const arr = getJSON(LS_LOG, []);
+        arr.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
+        localStorage.setItem(LS_LOG, JSON.stringify(arr.slice(0, 180)));
     }
 
     function getLogText() {
         return getJSON(LS_LOG, []).join("\n");
     }
 
-    /**********************
-     * CSV IMPORT
-     **********************/
+    function loadSIQueueFromCurrentPage() {
+        if (!location.href.includes("/special_issue_pending/list")) {
+            alert("Please open the pending SI list page first.");
+            log("Load SI queue failed: not on pending list page.");
+            return;
+        }
+
+        const links = Array.from(document.querySelectorAll("a[href*='/special_issue/process/']"));
+        const seen = new Set();
+        const queue = [];
+
+        links.forEach(a => {
+            const href = a.href;
+            const m = href.match(/\/special_issue\/process\/(\d+)/);
+            if (!m) return;
+
+            const id = m[1];
+            if (seen.has(id)) return;
+            seen.add(id);
+
+            const row = a.closest("tr") || a.closest("div") || a.parentElement;
+            const title = extractSITitle(row, a);
+
+            queue.push({
+                id,
+                title,
+                url: href.split("?")[0]
+            });
+        });
+
+        if (!queue.length) {
+            alert("No SI process links found on this page.");
+            log("No SI links found.");
+            return;
+        }
+
+        localStorage.setItem(LS_SI_QUEUE, JSON.stringify(queue));
+        localStorage.setItem(LS_SI_INDEX, "0");
+        localStorage.setItem(LS_GE_INDEX, "0");
+
+        log(`Loaded ${queue.length} SI into queue.`);
+        updateStatus();
+    }
+
+    function extractSITitle(row, a) {
+        const text = row ? row.innerText || "" : "";
+        const lines = text.split("\n").map(x => x.trim()).filter(Boolean);
+
+        const likely = lines.find(l =>
+            l.length > 20 &&
+            !/^\d+$/.test(l) &&
+            !/pending|website|date|owner|status|processes/i.test(l)
+        );
+
+        return likely || (a.innerText || "").trim() || "Untitled SI";
+    }
+
     function importCSVFile(e) {
-
-        const file =
-            e.target.files[0];
-
+        const file = e.target.files[0];
         if (!file) return;
 
-        const reader =
-            new FileReader();
-
+        const reader = new FileReader();
         reader.onload = () => {
-
-            const text =
-                String(reader.result || "");
-
-            const box =
-                document.getElementById("gea-csv");
-
-            if (box)
-                box.value = text;
-
+            const text = String(reader.result || "");
+            const box = document.getElementById("gea-csv");
+            if (box) box.value = text;
             importCSV(text);
         };
-
         reader.readAsText(file, "UTF-8");
     }
 
     function importCSVText() {
-
-        const csv =
-            document.getElementById("gea-csv").value.trim();
-
+        const csv = document.getElementById("gea-csv").value.trim();
         if (!csv) {
             alert("Please paste CSV.");
             return;
         }
-
         importCSV(csv);
     }
 
     function importCSV(csv) {
+        const rows = parseCSV(csv);
+        const normalized = rows.map(normalizeRow).filter(r => r.email);
 
-        const rows =
-            parseCSV(csv);
-
-        const normalized =
-            rows
-                .map(normalizeRow)
-                .filter(r => r.email);
-
-        const seen =
-            new Set();
-
+        const seen = new Set();
         const deduped = [];
 
         normalized.forEach(r => {
-
-            const key =
-                r.email.toLowerCase();
-
+            const key = r.email.toLowerCase();
             if (seen.has(key)) return;
-
             seen.add(key);
             deduped.push(r);
         });
 
-        localStorage.setItem(
-            LS_GE_POOL,
-            JSON.stringify(deduped)
-        );
-
+        localStorage.setItem(LS_GE_POOL, JSON.stringify(deduped));
         log(`Imported ${deduped.length} GE.`);
         updateStatus();
     }
 
     function normalizeRow(row) {
-
         const get = (...names) => {
-
             for (const n of names) {
-
-                const key =
-                    Object.keys(row)
-                        .find(k =>
-                            clean(k) === clean(n)
-                        );
-
-                if (key)
-                    return String(row[key] || "").trim();
+                const key = Object.keys(row).find(k => clean(k) === clean(n));
+                if (key) return String(row[key] || "").trim();
             }
-
             return "";
         };
 
         return {
-            email:
-                get("Email", "Linked Email", "E-mail"),
-
-            name:
-                get("Name"),
-
-            invitedDate:
-                get("Invited Date"),
-
-            status:
-                get("Status")
+            email: get("Email", "Linked Email", "E-mail", "Email Address"),
+            name: get("Name", "Full Name"),
+            invitedDate: get("Invited Date", "Last Invited", "Last Invitation Date"),
+            status: get("Status")
         };
     }
 
     function clean(s) {
-        return String(s || "")
-            .toLowerCase()
-            .replace(/[\s_\-]/g, "");
+        return String(s || "").toLowerCase().replace(/[\s_\-]/g, "");
     }
 
-    /**********************
-     * RUN
-     **********************/
-    function startRun(forceAll) {
-
-        const pool =
-            getJSON(LS_GE_POOL, []);
+    function startNewRound() {
+        const pool = getJSON(LS_GE_POOL, []);
+        const siQueue = getJSON(LS_SI_QUEUE, []);
 
         if (!pool.length) {
-            alert("Please import CSV first.");
+            alert("Please import GE CSV first.");
             return;
         }
 
-        const results =
-            getJSON(LS_RESULTS, {});
-
-        const candidates =
-            pool.filter(ge => {
-
-                if (!ge.email)
-                    return false;
-
-                const key =
-                    ge.email.toLowerCase();
-
-                if (
-                    !forceAll &&
-                    results[key]?.checkedAt
-                ) {
-                    return false;
-                }
-
-                return true;
-            });
-
-        if (!candidates.length) {
-            alert("No candidates.");
+        if (!siQueue.length) {
+            alert("Please open pending SI list and click Load SI Queue first.");
             return;
         }
 
-        localStorage.setItem(
-            LS_QUEUE,
-            JSON.stringify(
-                candidates.map(x => x.email)
-            )
-        );
+        localStorage.setItem(LS_RESULTS, JSON.stringify({}));
+        localStorage.setItem(LS_SI_COUNTS, JSON.stringify({}));
+        localStorage.setItem(LS_SI_INDEX, "0");
+        localStorage.setItem(LS_GE_INDEX, "0");
+        localStorage.setItem(LS_RUNNING, "1");
+        localStorage.removeItem(LS_CURRENT);
 
-        localStorage.setItem(
-            LS_RUNNING,
-            "1"
-        );
-
-        log(
-            `Started. Queue=${candidates.length}`
-        );
-
+        log("New round started. SI round counts reset.");
         updateStatus();
+        dispatchNext();
+    }
 
-        goNext();
+    function resumeRound() {
+        const pool = getJSON(LS_GE_POOL, []);
+        const siQueue = getJSON(LS_SI_QUEUE, []);
+
+        if (!pool.length || !siQueue.length) {
+            alert("Please import GE CSV and load SI queue first.");
+            return;
+        }
+
+        localStorage.setItem(LS_RUNNING, "1");
+        log("Resumed current round.");
+        updateStatus();
+        dispatchNext();
     }
 
     function stopRun() {
-
-        localStorage.setItem(
-            LS_RUNNING,
-            "0"
-        );
-
-        localStorage.removeItem(
-            LS_CURRENT
-        );
-
+        localStorage.setItem(LS_RUNNING, "0");
+        localStorage.removeItem(LS_CURRENT);
         log("Stopped.");
         updateStatus();
     }
 
-    function goNext() {
+    function dispatchNext() {
+        if (localStorage.getItem(LS_RUNNING) !== "1") return;
 
-        if (
-            localStorage.getItem(LS_RUNNING) !== "1"
-        ) return;
+        const pool = getJSON(LS_GE_POOL, []);
+        const siQueue = getJSON(LS_SI_QUEUE, []);
+        const counts = getJSON(LS_SI_COUNTS, {});
+        const results = getJSON(LS_RESULTS, {});
 
-        const queue =
-            getJSON(LS_QUEUE, []);
+        let siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+        let geIndex = Number(localStorage.getItem(LS_GE_INDEX) || 0);
 
-        if (!queue.length) {
+        while (siIndex < siQueue.length) {
+            const si = siQueue[siIndex];
+            const count = counts[si.id] || 0;
 
-            localStorage.setItem(
-                LS_RUNNING,
-                "0"
-            );
+            if (count >= MAX_PROCEED_PER_SI_PER_ROUND) {
+                log(`SI ${si.id} reached ${MAX_PROCEED_PER_SI_PER_ROUND}. Moving to next SI.`);
+                siIndex++;
+                geIndex = 0;
+                continue;
+            }
 
-            localStorage.removeItem(
-                LS_CURRENT
-            );
+            while (geIndex < pool.length) {
+                const ge = pool[geIndex];
+                geIndex++;
 
-            log("Completed.");
-            updateStatus();
+                localStorage.setItem(LS_SI_INDEX, String(siIndex));
+                localStorage.setItem(LS_GE_INDEX, String(geIndex));
 
-            alert("Completed.");
+                if (!shouldUseGE(ge)) continue;
 
-            return;
+                const key = makeResultKey(si.id, ge.email);
+                if (results[key]?.checkedAt) continue;
+
+                const current = {
+                    siId: si.id,
+                    siTitle: si.title,
+                    siUrl: si.url,
+                    email: ge.email
+                };
+
+                localStorage.setItem(LS_CURRENT, JSON.stringify(current));
+                log(`Opening SI ${si.id} for ${ge.email}`);
+                updateStatus();
+
+                location.href = `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
+                return;
+            }
+
+            siIndex++;
+            geIndex = 0;
         }
 
-        const email =
-            queue.shift();
+        localStorage.setItem(LS_RUNNING, "0");
+        localStorage.removeItem(LS_CURRENT);
+        log("Round completed: no more SI/GE combinations.");
+        updateStatus();
+        alert("Round completed.");
+    }
 
-        localStorage.setItem(
-            LS_QUEUE,
-            JSON.stringify(queue)
-        );
+    function shouldUseGE(ge) {
+        if (!ge || !ge.email) return false;
+        if (shouldSkipStatus(ge.status)) return false;
 
-        localStorage.setItem(
-            LS_CURRENT,
-            email
-        );
+        const unlock = getUnlockTime(ge.invitedDate);
+        if (unlock && Date.now() < unlock.getTime()) return false;
 
-        log(`Opening ${email}`);
+        return true;
+    }
+
+    function shouldSkipStatus(status) {
+        const s = String(status || "").toLowerCase();
+        return ["deny", "blacklist", "skip", "do not", "declined", "rejected", "invalid", "section board", "board member"]
+            .some(w => s.includes(w));
+    }
+
+    function getUnlockTime(text) {
+        if (!text) return null;
+        const d = parseDate(text);
+        if (!d) return null;
+        return new Date(d.getTime() + UNLOCK_DAYS * 24 * 60 * 60 * 1000);
+    }
+
+    function parseDate(text) {
+        const s = String(text || "").trim();
+        if (!s) return null;
+
+        let d = new Date(s);
+        if (!isNaN(d.getTime())) return d;
+
+        const m = s.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+        if (m) {
+            d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+            if (!isNaN(d.getTime())) return d;
+        }
+
+        return null;
+    }
+
+    function runOnSIPage() {
+        const params = new URLSearchParams(location.search);
+        if (params.get("geaRun") !== "1") return;
+
+        const siId = params.get("siId");
+        const email = params.get("email");
+        if (!siId || !email) return;
+
+        localStorage.setItem(LS_CURRENT, JSON.stringify({ siId, email }));
+        log(`SI page loaded: SI ${siId}, ${email}`);
         updateStatus();
 
-        location.href =
-            `${TEST_SI_URL}?geaRun=1&email=${encodeURIComponent(email)}`;
+        closePopup();
+
+        waitForElement(findEmailInput, input => {
+            log(`Filling ${email}`);
+            fillInput(input, email);
+
+            waitForElement(() => findButtonByText("next"), nextBtn => {
+                log("Click Next");
+                clickElement(nextBtn);
+                waitForProceedOrFailure(siId, email);
+            }, 10000, () => {
+                record(siId, email, {
+                    status: "FAILED_NO_NEXT",
+                    eligible: false,
+                    reason: "Next button not found",
+                    pageUrl: location.href
+                });
+                setTimeout(dispatchNext, 1200);
+            });
+        }, 10000, () => {
+            record(siId, email, {
+                status: "FAILED_NO_EMAIL_INPUT",
+                eligible: false,
+                reason: "E-Mail input not found",
+                pageUrl: location.href
+            });
+            setTimeout(dispatchNext, 1200);
+        });
     }
 
-    /**********************
-     * SI PAGE
-     **********************/
-    function runOnSIPage() {
-
-        const params =
-            new URLSearchParams(location.search);
-
-        if (
-            params.get("geaRun") !== "1"
-        ) return;
-
-        const email =
-            params.get("email");
-
-        if (!email) return;
-
-        waitForElement(
-            findEmailInput,
-            input => {
-
-                log(`Filling ${email}`);
-
-                fillInput(input, email);
-
-                waitForElement(
-                    () => findButtonByText("next"),
-
-                    nextBtn => {
-
-                        log("Click Next");
-
-                        clickElement(nextBtn);
-
-                        waitForProceed(email);
-                    },
-
-                    10000
-                );
-            },
-
-            10000
-        );
-    }
-
-    function waitForProceed(email) {
-
+    function waitForProceedOrFailure(siId, email) {
         let count = 0;
 
-        const timer =
-            setInterval(() => {
+        const timer = setInterval(() => {
+            count++;
+            closePopup();
 
-                count++;
+            const proceedBtn = findButtonByText("proceed");
+            const lower = (document.body.innerText || "").toLowerCase();
 
-                const proceedBtn =
-                    findButtonByText("proceed");
+            if (proceedBtn) {
+                clearInterval(timer);
 
-                if (proceedBtn) {
+                const auto = localStorage.getItem(LS_AUTO_PROCEED) === "1";
 
-                    clearInterval(timer);
-
-                    log(`Proceed found for ${email}`);
-
-                    const auto =
-                        localStorage.getItem(LS_AUTO_PROCEED) === "1";
-
-                    if (!auto) {
-
-                        record(email, {
-                            status: "CAN_PROCEED"
-                        });
-
-                        setTimeout(goNext, 1200);
-
-                        return;
-                    }
-
-                    log(`Click Proceed ${email}`);
-
-                    clickElement(proceedBtn);
-
-                    record(email, {
-                        status: "PROCEED_CLICKED"
+                if (!auto) {
+                    log(`Proceed found for SI ${siId}, ${email}. Auto Proceed OFF.`);
+                    record(siId, email, {
+                        status: "CAN_PROCEED",
+                        eligible: true,
+                        reason: "Proceed found; Auto Proceed OFF",
+                        pageUrl: location.href
                     });
-
-                    setTimeout(goNext, 2500);
-
+                    setTimeout(dispatchNext, 1200);
                     return;
                 }
 
-                if (count > 100) {
+                log(`Click Proceed: SI ${siId}, ${email}`);
+                clickElement(proceedBtn);
+                incrementSICount(siId);
 
-                    clearInterval(timer);
+                record(siId, email, {
+                    status: "PROCEED_CLICKED",
+                    eligible: true,
+                    reason: "Proceed clicked automatically",
+                    pageUrl: location.href
+                });
 
-                    log(`Timeout ${email}`);
+                setTimeout(dispatchNext, 2500);
+                return;
+            }
 
-                    record(email, {
-                        status: "FAILED_TIMEOUT"
-                    });
+            const negative = detectNegative(lower);
+            if (negative) {
+                clearInterval(timer);
+                log(`Not eligible: SI ${siId}, ${email}. Reason: ${negative}`);
 
-                    setTimeout(goNext, 1200);
-                }
+                record(siId, email, {
+                    status: "NOT_ELIGIBLE",
+                    eligible: false,
+                    reason: negative,
+                    pageUrl: location.href
+                });
 
-            }, 250);
+                setTimeout(dispatchNext, 1200);
+                return;
+            }
+
+            if (count % 12 === 0) {
+                log(`Waiting result: SI ${siId}, ${email}...`);
+                updateStatus();
+            }
+
+            if (count > 100) {
+                clearInterval(timer);
+                log(`Timeout: SI ${siId}, ${email}`);
+
+                record(siId, email, {
+                    status: "FAILED_TIMEOUT",
+                    eligible: false,
+                    reason: "No Proceed or negative signal detected",
+                    pageUrl: location.href
+                });
+
+                setTimeout(dispatchNext, 1200);
+            }
+        }, 250);
     }
 
-    function record(email, data) {
+    function incrementSICount(siId) {
+        const counts = getJSON(LS_SI_COUNTS, {});
+        counts[siId] = (counts[siId] || 0) + 1;
+        localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
+        log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
+    }
 
-        const results =
-            getJSON(LS_RESULTS, {});
+    function detectNegative(lower) {
+        const signals = [
+            "already invited",
+            "has been invited",
+            "not allowed",
+            "not allow",
+            "cannot be invited",
+            "can not be invited",
+            "not eligible",
+            "denylist",
+            "blacklist",
+            "duplicate",
+            "not found",
+            "no record",
+            "past 90 days",
+            "past 90"
+        ];
 
-        results[email.toLowerCase()] = {
+        return signals.find(s => lower.includes(s)) || "";
+    }
+
+    function record(siId, email, data) {
+        const results = getJSON(LS_RESULTS, {});
+        const key = makeResultKey(siId, email);
+
+        results[key] = {
+            siId,
             email,
             ...data,
-            checkedAt:
-                new Date().toISOString()
+            checkedAt: new Date().toISOString()
         };
 
-        localStorage.setItem(
-            LS_RESULTS,
-            JSON.stringify(results)
-        );
-
+        localStorage.setItem(LS_RESULTS, JSON.stringify(results));
         updateStatus();
     }
 
-    /**********************
-     * HELPERS
-     **********************/
-    function findEmailInput() {
+    function makeResultKey(siId, email) {
+        return `${siId}||${String(email || "").toLowerCase()}`;
+    }
 
-        const inputs =
-            Array.from(
-                document.querySelectorAll("input")
-            )
-            .filter(el =>
-                !el.disabled &&
-                el.offsetParent !== null
-            );
+    function findEmailInput() {
+        const inputs = Array.from(document.querySelectorAll("input"))
+            .filter(el => !el.disabled && el.offsetParent !== null);
 
         let best = null;
         let bestScore = -999;
 
         inputs.forEach(input => {
-
-            const name =
-                (input.name || "").toLowerCase();
-
-            const id =
-                (input.id || "").toLowerCase();
-
-            const type =
-                (input.type || "").toLowerCase();
+            const ph = (input.getAttribute("placeholder") || "").toLowerCase();
+            const name = (input.getAttribute("name") || "").toLowerCase();
+            const id = (input.getAttribute("id") || "").toLowerCase();
+            const type = (input.getAttribute("type") || "").toLowerCase();
+            const context = ((input.closest("tr, div, form") || {}).innerText || "").toLowerCase();
 
             let score = 0;
 
-            if (type === "email")
-                score += 80;
+            if (type === "email") score += 80;
+            if (name.includes("email") || id.includes("email")) score += 70;
+            if (context.includes("* e-mail") || context.includes("e-mail")) score += 60;
 
-            if (
-                name.includes("email") ||
-                id.includes("email")
-            ) {
-                score += 70;
-            }
+            if (ph.includes("user e-mail")) score -= 200;
+            if (ph.includes("quick find")) score -= 200;
+            if (context.includes("user overview")) score -= 120;
 
             if (score > bestScore) {
                 bestScore = score;
@@ -883,237 +743,175 @@
             }
         });
 
-        return best;
+        return bestScore > -50 ? best : null;
     }
 
     function findButtonByText(text) {
+        const target = text.toLowerCase();
 
-        const target =
-            text.toLowerCase();
-
-        const candidates =
-            Array.from(
-                document.querySelectorAll(
-                    "button, input[type='button'], input[type='submit'], a"
-                )
-            )
-            .filter(el =>
-                el.offsetParent !== null
-            );
+        const candidates = Array.from(
+            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+        ).filter(el => el.offsetParent !== null);
 
         return candidates.find(el => {
-
-            const t =
-                (el.innerText || el.value || "")
-                    .trim()
-                    .toLowerCase();
-
+            const t = (el.innerText || el.value || "").trim().toLowerCase();
             return t === target;
         });
     }
 
     function clickElement(el) {
-
-        el.dispatchEvent(
-            new MouseEvent("mousedown", {
-                bubbles: true
-            })
-        );
-
-        el.dispatchEvent(
-            new MouseEvent("mouseup", {
-                bubbles: true
-            })
-        );
-
+        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         el.click();
     }
 
     function fillInput(input, value) {
-
         input.focus();
 
-        const setter =
-            Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype,
-                "value"
-            )?.set;
+        const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value"
+        )?.set;
 
-        if (setter)
-            setter.call(input, value);
-        else
-            input.value = value;
+        if (setter) setter.call(input, value);
+        else input.value = value;
 
-        input.dispatchEvent(
-            new Event("input", {
-                bubbles: true
-            })
-        );
-
-        input.dispatchEvent(
-            new Event("change", {
-                bubbles: true
-            })
-        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
     }
 
-    function waitForElement(
-        getter,
-        callback,
-        timeout = 8000
-    ) {
+    function waitForElement(getter, callback, timeout = 8000, onTimeout = null) {
+        const start = Date.now();
 
-        const start =
-            Date.now();
+        const timer = setInterval(() => {
+            const el = getter();
 
-        const timer =
-            setInterval(() => {
+            if (el) {
+                clearInterval(timer);
+                callback(el);
+                return;
+            }
 
-                const el =
-                    getter();
+            if (Date.now() - start > timeout) {
+                clearInterval(timer);
+                if (onTimeout) onTimeout();
+            }
+        }, 80);
+    }
 
-                if (el) {
+    function closePopup() {
+        const candidates = Array.from(document.querySelectorAll("button, a, span, div"));
 
-                    clearInterval(timer);
+        const closeBtn = candidates.find(el => {
+            const text = (el.innerText || el.textContent || "").trim();
+            const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+            const cls = (el.className || "").toString().toLowerCase();
 
-                    callback(el);
+            return (
+                text === "×" ||
+                text === "x" ||
+                aria.includes("close") ||
+                cls.includes("close")
+            );
+        });
 
-                    return;
-                }
-
-                if (
-                    Date.now() - start > timeout
-                ) {
-
-                    clearInterval(timer);
-                }
-
-            }, 80);
+        if (closeBtn) closeBtn.click();
     }
 
     function parseCSV(text) {
+        const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim());
+        if (lines.length < 2) return [];
 
-        const lines =
-            text
-                .replace(/\r/g, "")
-                .split("\n")
-                .filter(l => l.trim());
-
-        if (lines.length < 2)
-            return [];
-
-        const headers =
-            splitCSVLine(lines[0]);
+        const headers = splitCSVLine(lines[0]);
 
         return lines.slice(1).map(line => {
-
-            const values =
-                splitCSVLine(line);
-
+            const values = splitCSVLine(line);
             const obj = {};
-
             headers.forEach((h, i) => {
                 obj[h] = values[i] || "";
             });
-
             return obj;
         });
     }
 
     function splitCSVLine(line) {
-
         const result = [];
-
         let cur = "";
         let inQuotes = false;
 
         for (let i = 0; i < line.length; i++) {
-
             const c = line[i];
 
-            if (
-                c === '"' &&
-                line[i + 1] === '"'
-            ) {
+            if (c === '"' && line[i + 1] === '"') {
                 cur += '"';
                 i++;
-            }
-            else if (c === '"') {
+            } else if (c === '"') {
                 inQuotes = !inQuotes;
-            }
-            else if (
-                c === "," &&
-                !inQuotes
-            ) {
+            } else if (c === "," && !inQuotes) {
                 result.push(cur);
                 cur = "";
-            }
-            else {
+            } else {
                 cur += c;
             }
         }
 
         result.push(cur);
-
         return result.map(x => x.trim());
     }
 
     function exportResults() {
-
-        const results =
-            Object.values(
-                getJSON(LS_RESULTS, {})
-            );
+        const results = Object.values(getJSON(LS_RESULTS, {}));
 
         if (!results.length) {
             alert("No results.");
             return;
         }
 
-        const csv =
-            [
-                "email,status,checkedAt",
-                ...results.map(r =>
-                    `${r.email},${r.status},${r.checkedAt}`
-                )
-            ].join("\n");
+        const headers = ["siId", "email", "status", "eligible", "reason", "checkedAt", "pageUrl"];
+        const csv = [
+            headers.join(","),
+            ...results.map(r => headers.map(h => csvEscape(r[h])).join(","))
+        ].join("\n");
 
         GM_setClipboard(csv);
 
-        alert("Copied.");
+        const out = document.getElementById("gea-output");
+        if (out) out.value = csv;
+
+        alert("Results copied.");
+    }
+
+    function csvEscape(v) {
+        const s = String(v ?? "");
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
     }
 
     function clearData() {
-
-        if (
-            !confirm("Clear all?")
-        ) return;
+        if (!confirm("Clear all local GE/SI data, results, counts, queue, and log?")) return;
 
         [
             LS_GE_POOL,
+            LS_SI_QUEUE,
             LS_RESULTS,
-            LS_QUEUE,
             LS_RUNNING,
-            LS_CURRENT,
-            LS_LOG
-        ].forEach(k =>
-            localStorage.removeItem(k)
-        );
+            LS_LOG,
+            LS_SI_INDEX,
+            LS_GE_INDEX,
+            LS_SI_COUNTS,
+            LS_CURRENT
+        ].forEach(k => localStorage.removeItem(k));
 
-        updateStatus();
+        updateStatus("Local data cleared.");
     }
 
     function getJSON(key, fallback) {
-
         try {
-            return JSON.parse(
-                localStorage.getItem(key) ||
-                JSON.stringify(fallback)
-            );
-        }
-        catch {
+            return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+        } catch {
             return fallback;
         }
     }
-
 })();
