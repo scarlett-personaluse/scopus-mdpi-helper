@@ -1,6 +1,6 @@
 // ==UserScript==
-// @downloadURL  https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper.user.js/main/scopus-mdpi-helper.user.js
-// @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper.user.js/main/scopus-mdpi-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
+// @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
 // @version      4.4
