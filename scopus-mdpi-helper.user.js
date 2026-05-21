@@ -1,9 +1,7 @@
 // ==UserScript==
-// @downloadURL  https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
-// @updateURL    https://raw.githubusercontent.com/Scarlettpersonaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @description  Scopus quick screening + floating MDPI button beside selected email
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -11,6 +9,8 @@
 // @match        https://pubpeer.org/*
 // @match        https://retractiondatabase.org/RetractionSearch.aspx*
 // @match        *://*/*
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
 // @grant        GM_setClipboard
 // @connect      www.scopus.com
 // ==/UserScript==
@@ -21,12 +21,7 @@
     const MDPI_INTERNAL_URL = "https://susy.mdpi.com/special_issue/process/1877901";
     const PUBPEER_SEARCH_URL = "https://pubpeer.org/search?q=";
     const RETRACTION_URL = "https://retractiondatabase.org/RetractionSearch.aspx";
-
     const url = window.location.href;
-
-    // =========================
-    // 页面类型判断
-    // =========================
 
     if (url.includes("scopus.com/authid/detail.uri")) {
         runScopusPage();
@@ -38,15 +33,9 @@
         runRetractionPage();
     }
 
-    // 所有页面增加“选中邮箱 → MDPI”功能
     createSelectedEmailMdpiButton();
 
-    // =========================
-    // Scopus 页面
-    // =========================
-
     function runScopusPage() {
-
         if (url.startsWith("https://www2.scopus.com/authid/detail.uri?authorId=")) {
             window.location.href = url.replace("www2.scopus.com", "www.scopus.com");
             return;
@@ -54,36 +43,28 @@
 
         const params = new URLSearchParams(window.location.search);
         const authorId = params.get("authorId");
-
         if (!authorId) return;
 
         const apiUrl = `https://www.scopus.com/api/authors/${authorId}`;
 
         window.addEventListener("load", () => {
-
             fetch(apiUrl)
                 .then(res => res.json())
                 .then(data => {
-
                     const rawName = data.preferredName?.full || "";
                     const name = formatName(rawName);
                     const email = data.emailAddress || "";
                     const institution = data.latestAffiliatedInstitution?.name || "";
-
                     createButtonBar(name, email, institution);
-
                 })
                 .catch(err => {
-
                     console.error(err);
                     createButtonBar("", "", "");
-
                 });
         });
     }
 
     function createButtonBar(name, email, institution) {
-
         if (document.getElementById("scopus-ge-button-bar")) return;
 
         const bar = document.createElement("div");
@@ -106,12 +87,8 @@
         });
 
         const emailText = document.createElement("span");
-
         emailText.textContent = email || "No email";
-
-        emailText.title = email
-            ? "Click to copy email"
-            : "No email found";
+        emailText.title = email ? "Click to copy email" : "No email found";
 
         Object.assign(emailText.style, {
             padding: "8px 12px",
@@ -125,11 +102,7 @@
         });
 
         emailText.onclick = () => {
-
-            if (!email) return;
-
-            GM_setClipboard(email);
-
+            if (email) GM_setClipboard(email);
         };
 
         bar.appendChild(emailText);
@@ -139,75 +112,45 @@
                 text: "MDPI",
                 color: "#1677ff",
                 onclick: () => {
-
                     if (!email) return;
-
                     GM_setClipboard(email);
-
-                    window.open(
-                        `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(email)}`,
-                        "_blank"
-                    );
+                    window.open(`${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(email)}`, "_blank");
                 }
             },
             {
                 text: "PubPeer",
                 color: "#722ed1",
                 onclick: () => {
-
                     if (!name) return;
-
-                    window.open(
-                        `${PUBPEER_SEARCH_URL}${encodeURIComponent(name)}`,
-                        "_blank"
-                    );
+                    window.open(`${PUBPEER_SEARCH_URL}${encodeURIComponent(name)}`, "_blank");
                 }
             },
             {
                 text: "Retraction",
                 color: "#fa541c",
                 onclick: () => {
-
                     if (!name) return;
-
-                    window.open(
-                        `${RETRACTION_URL}?geName=${encodeURIComponent(name)}`,
-                        "_blank"
-                    );
+                    window.open(`${RETRACTION_URL}?geName=${encodeURIComponent(name)}`, "_blank");
                 }
             },
             {
                 text: "Google",
                 color: "#595959",
                 onclick: () => {
-
-                    const query = `${name} ${institution}`;
-
-                    window.open(
-                        `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-                        "_blank"
-                    );
+                    window.open(`https://www.google.com/search?q=${encodeURIComponent(`${name} ${institution}`)}`, "_blank");
                 }
             },
             {
                 text: "Scholar",
                 color: "#13c2c2",
                 onclick: () => {
-
-                    const query = `${name} ${institution}`;
-
-                    window.open(
-                        `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
-                        "_blank"
-                    );
+                    window.open(`https://scholar.google.com/scholar?q=${encodeURIComponent(`${name} ${institution}`)}`, "_blank");
                 }
             }
         ];
 
         buttons.forEach(config => {
-
             const btn = document.createElement("button");
-
             btn.textContent = config.text;
 
             Object.assign(btn.style, {
@@ -222,28 +165,19 @@
             });
 
             btn.onclick = config.onclick;
-
             bar.appendChild(btn);
-
         });
 
         document.body.appendChild(bar);
     }
 
-    // =========================
-    // 选中邮箱后浮动 MDPI 按钮
-    // =========================
-
     function createSelectedEmailMdpiButton() {
-
         if (url.includes("susy.mdpi.com")) return;
 
         window.addEventListener("load", () => {
-
             if (document.getElementById("selected-email-mdpi-btn")) return;
 
             const btn = document.createElement("button");
-
             btn.id = "selected-email-mdpi-btn";
             btn.textContent = "MDPI";
 
@@ -267,279 +201,165 @@
             let currentEmail = "";
 
             document.addEventListener("mouseup", () => {
-
                 setTimeout(() => {
-
                     const selection = window.getSelection();
                     const selectedText = selection.toString().trim();
 
-                    const emailMatch = selectedText.match(
-                        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-                    );
+                    const emailMatch = selectedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
 
                     if (!emailMatch || selection.rangeCount === 0) {
-
                         btn.style.display = "none";
                         currentEmail = "";
-
                         return;
                     }
 
                     currentEmail = emailMatch[0];
 
-                    const range = selection.getRangeAt(0);
-                    const rect = range.getBoundingClientRect();
+                    const rect = selection.getRangeAt(0).getBoundingClientRect();
 
-                    btn.style.left =
-                        `${rect.right + window.scrollX + 8}px`;
-
-                    btn.style.top =
-                        `${rect.top + window.scrollY - 4}px`;
-
+                    btn.style.left = `${rect.right + window.scrollX + 8}px`;
+                    btn.style.top = `${rect.top + window.scrollY - 4}px`;
                     btn.style.display = "block";
-
                 }, 80);
             });
 
             document.addEventListener("mousedown", event => {
-
                 if (event.target === btn) return;
-
                 btn.style.display = "none";
-
             });
 
             btn.onclick = event => {
-
                 event.preventDefault();
                 event.stopPropagation();
 
                 if (!currentEmail) return;
 
                 GM_setClipboard(currentEmail);
-
-                window.open(
-                    `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(currentEmail)}`,
-                    "_blank"
-                );
+                window.open(`${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(currentEmail)}`, "_blank");
             };
         });
     }
 
-    // =========================
-    // MDPI 页面自动填邮箱
-    // =========================
-
     function runMdpiPage() {
+        const params = new URLSearchParams(window.location.search);
+        const email = params.get("geEmail");
+        if (!email) return;
 
-    const params = new URLSearchParams(window.location.search);
-    const email = params.get("geEmail");
-
-    if (!email) return;
-
-    window.addEventListener("load", () => {
-
-        setTimeout(() => {
-
-            closeMdpiPopup();
-
-            const input = findEmailInput();
-
-            if (!input) {
-                GM_setClipboard(email);
-                alert("Email copied, but the E-Mail input box was not found.");
-                return;
-            }
-
-            fillInput(input, email);
-
+        window.addEventListener("load", () => {
             setTimeout(() => {
+                closeMdpiPopup();
 
-                const nextBtn = findCorrectNextButton(input);
+                const input = findEmailInput();
 
-                if (nextBtn) {
-                    nextBtn.click();
-
-                    setTimeout(closeMdpiPopup, 800);
-                    setTimeout(closeMdpiPopup, 1500);
-                    setTimeout(closeMdpiPopup, 2500);
-                } else {
-                    alert("Email filled, but the correct Next button was not found.");
-                }
-
-            }, 600);
-
-        }, 1200);
-    });
-}
-
-function findCorrectNextButton(input) {
-
-    const buttons = Array.from(
-        document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
-    );
-
-    const nextButtons = buttons.filter(el => {
-        const text = (el.innerText || el.value || "").trim().toLowerCase();
-        return text === "next";
-    });
-
-    if (!nextButtons.length) return null;
-
-    const inputRect = input.getBoundingClientRect();
-
-    nextButtons.sort((a, b) => {
-        const ra = a.getBoundingClientRect();
-        const rb = b.getBoundingClientRect();
-
-        const da =
-            Math.abs(ra.top - inputRect.bottom) +
-            Math.abs(ra.left - inputRect.left);
-
-        const db =
-            Math.abs(rb.top - inputRect.bottom) +
-            Math.abs(rb.left - inputRect.left);
-
-        return da - db;
-    });
-
-    return nextButtons[0];
-}
-
-function closeMdpiPopup() {
-
-    const candidates = Array.from(
-        document.querySelectorAll("button, a, span, div")
-    );
-
-    const closeBtn = candidates.find(el => {
-        const text = (el.innerText || el.textContent || "").trim();
-        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-        const cls = (el.className || "").toString().toLowerCase();
-
-        return (
-            text === "×" ||
-            text === "x" ||
-            aria.includes("close") ||
-            cls.includes("close")
-        );
-    });
-
-    if (closeBtn) {
-        closeBtn.click();
-    }
-}
-
-            fillInput(input, email);
-
-            setTimeout(() => {
-
-                const buttons = Array.from(
-                    document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
-                );
-
-                const nextButtons = buttons.filter(el => {
-                    const text = (el.innerText || el.value || "").trim().toLowerCase();
-                    return text === "next";
-                });
-
-                if (!nextButtons.length) {
-                    alert("Email filled, but Next button was not found.");
+                if (!input) {
+                    GM_setClipboard(email);
+                    alert("Email copied, but the E-Mail input box was not found.");
                     return;
                 }
 
-                const inputRect = input.getBoundingClientRect();
+                fillInput(input, email);
 
-                nextButtons.sort((a, b) => {
-                    const ra = a.getBoundingClientRect();
-                    const rb = b.getBoundingClientRect();
+                setTimeout(() => {
+                    const nextBtn = findCorrectNextButton(input);
 
-                    const da =
-                        Math.abs(ra.top - inputRect.bottom) +
-                        Math.abs(ra.left - inputRect.left);
+                    if (nextBtn) {
+                        nextBtn.click();
+                        setTimeout(closeMdpiPopup, 800);
+                        setTimeout(closeMdpiPopup, 1500);
+                        setTimeout(closeMdpiPopup, 2500);
+                    } else {
+                        alert("Email filled, but the correct Next button was not found.");
+                    }
+                }, 600);
 
-                    const db =
-                        Math.abs(rb.top - inputRect.bottom) +
-                        Math.abs(rb.left - inputRect.left);
+            }, 1200);
+        });
+    }
 
-                    return da - db;
-                });
+    function findCorrectNextButton(input) {
+        const buttons = Array.from(
+            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+        );
 
-                nextButtons[0].click();
+        const nextButtons = buttons.filter(el => {
+            const text = (el.innerText || el.value || "").trim().toLowerCase();
+            return text === "next";
+        });
 
-            }, 600);
+        if (!nextButtons.length) return null;
 
-        }, 1200);
-    });
-}
+        const inputRect = input.getBoundingClientRect();
 
-    // =========================
-    // PubPeer 页面
-    // =========================
+        nextButtons.sort((a, b) => {
+            const ra = a.getBoundingClientRect();
+            const rb = b.getBoundingClientRect();
 
-    function runMdpiPage() {
+            const da = Math.abs(ra.top - inputRect.bottom) + Math.abs(ra.left - inputRect.left);
+            const db = Math.abs(rb.top - inputRect.bottom) + Math.abs(rb.left - inputRect.left);
 
-    const params = new URLSearchParams(window.location.search);
-    const email = params.get("geEmail");
+            return da - db;
+        });
 
-    if (!email) return;
+        return nextButtons[0];
+    }
 
-    window.addEventListener("load", () => {
+    function closeMdpiPopup() {
+        const candidates = Array.from(
+            document.querySelectorAll("button, a, span, div")
+        );
 
-        setTimeout(() => {
+        const closeBtn = candidates.find(el => {
+            const text = (el.innerText || el.textContent || "").trim();
+            const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+            const cls = (el.className || "").toString().toLowerCase();
 
-            const input = findEmailInput();
+            return (
+                text === "×" ||
+                text === "x" ||
+                aria.includes("close") ||
+                cls.includes("close")
+            );
+        });
 
-            if (!input) {
-                GM_setClipboard(email);
-                return;
-            }
+        if (closeBtn) closeBtn.click();
+    }
 
-            fillInput(input, email);
-
-            setTimeout(() => {
-                const nextBtn = findButtonByText([
-                    "Next",
-                    "Search",
-                    "Submit",
-                    "Continue"
-                ]);
-
-                if (nextBtn) {
-                    nextBtn.click();
-                } else {
-                    const form = input.closest("form");
-                    if (form) form.submit();
-                }
-            }, 500);
-
-        }, 1200);
-    });
-}
-
-    // =========================
-    // Retraction 页面
-    // =========================
-
-    function runRetractionPage() {
-
+    function runPubPeerPage() {
         const params = new URLSearchParams(window.location.search);
-        const name = params.get("geName");
+        const q = params.get("q");
+        if (!q) return;
 
-        if (!name) return;
-
-        const searchKey = "retraction_searched_" + name;
-
+        const searchKey = "pubpeer_searched_" + q;
         if (sessionStorage.getItem(searchKey)) return;
-
         sessionStorage.setItem(searchKey, "1");
 
         window.addEventListener("load", () => {
-
             setTimeout(() => {
+                const input = findSearchInput();
 
+                if (input) fillInput(input, q);
+
+                const btn =
+                    findButtonByText(["Search"]) ||
+                    document.querySelector("button[type='submit'], input[type='submit']");
+
+                if (btn) btn.click();
+            }, 800);
+        });
+    }
+
+    function runRetractionPage() {
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get("geName");
+        if (!name) return;
+
+        const searchKey = "retraction_searched_" + name;
+        if (sessionStorage.getItem(searchKey)) return;
+        sessionStorage.setItem(searchKey, "1");
+
+        window.addEventListener("load", () => {
+            setTimeout(() => {
                 const input = findRetractionInput();
-
                 if (!input) return;
 
                 fillInput(input, name);
@@ -550,27 +370,16 @@ function closeMdpiPopup() {
                     findButtonByText(["Search", "Submit", "Go"]);
 
                 if (btn) {
-
                     btn.click();
-
                 } else {
-
                     const form = input.closest("form");
-
                     if (form) form.submit();
-
                 }
-
             }, 1500);
         });
     }
 
-    // =========================
-    // 工具函数
-    // =========================
-
     function findEmailInput() {
-
         const selectors = [
             "input[type='email']",
             "input[name*='email' i]",
@@ -579,17 +388,11 @@ function closeMdpiPopup() {
         ];
 
         for (const selector of selectors) {
-
             const el = document.querySelector(selector);
-
-            if (el && !el.disabled && el.offsetParent !== null) {
-                return el;
-            }
+            if (el && !el.disabled && el.offsetParent !== null) return el;
         }
 
-        const labels = Array.from(
-            document.querySelectorAll("label, td, th, div, span")
-        );
+        const labels = Array.from(document.querySelectorAll("label, td, th, div, span"));
 
         const emailLabel = labels.find(el =>
             /email/i.test(el.textContent || "") &&
@@ -597,23 +400,16 @@ function closeMdpiPopup() {
         );
 
         if (emailLabel) {
+            const parent = emailLabel.closest("tr, div, form") || document.body;
+            const input = parent.querySelector("input[type='text'], input:not([type])");
 
-            const parent =
-                emailLabel.closest("tr, div, form") || document.body;
-
-            const input =
-                parent.querySelector("input[type='text'], input:not([type])");
-
-            if (input && !input.disabled && input.offsetParent !== null) {
-                return input;
-            }
+            if (input && !input.disabled && input.offsetParent !== null) return input;
         }
 
         return null;
     }
 
     function findSearchInput() {
-
         const selectors = [
             "input[type='search']",
             "input[name*='search' i]",
@@ -623,19 +419,14 @@ function closeMdpiPopup() {
         ];
 
         for (const selector of selectors) {
-
             const el = document.querySelector(selector);
-
-            if (el && !el.disabled && el.offsetParent !== null) {
-                return el;
-            }
+            if (el && !el.disabled && el.offsetParent !== null) return el;
         }
 
         return null;
     }
 
     function findRetractionInput() {
-
         const selectors = [
             "input[id*='Author' i]",
             "input[name*='Author' i]",
@@ -649,56 +440,36 @@ function closeMdpiPopup() {
         ];
 
         for (const selector of selectors) {
-
             const el = document.querySelector(selector);
-
-            if (el && !el.disabled && el.offsetParent !== null) {
-                return el;
-            }
+            if (el && !el.disabled && el.offsetParent !== null) return el;
         }
 
         return null;
     }
 
     function findButtonByText(words) {
-
         const candidates = Array.from(
-            document.querySelectorAll(
-                "button, input[type='button'], input[type='submit'], a"
-            )
+            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
         );
 
         return candidates.find(el => {
-
-            const text =
-                (el.innerText || el.value || "")
-                .trim()
-                .toLowerCase();
-
-            return words.some(word =>
-                text.includes(word.toLowerCase())
-            );
+            const text = (el.innerText || el.value || "").trim().toLowerCase();
+            return words.some(word => text.includes(word.toLowerCase()));
         });
     }
 
     function fillInput(input, value) {
-
         input.focus();
 
-        const nativeInputValueSetter =
-            Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype,
-                "value"
-            )?.set;
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value"
+        )?.set;
 
         if (nativeInputValueSetter) {
-
             nativeInputValueSetter.call(input, value);
-
         } else {
-
             input.value = value;
-
         }
 
         input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -708,16 +479,12 @@ function closeMdpiPopup() {
     }
 
     function formatName(scopusName) {
-
         if (!scopusName) return "";
 
         if (scopusName.includes(",")) {
-
             const parts = scopusName.split(",");
-
             const last = parts[0].trim();
             const first = parts.slice(1).join(",").trim();
-
             return `${first} ${last}`.trim();
         }
 
