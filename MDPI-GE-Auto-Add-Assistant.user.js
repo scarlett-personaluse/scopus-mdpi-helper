@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant - Eligibility Screener
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.0
+// @version      1.1
 // @description  Screen GE eligibility via a fixed MDPI SI page, record eligible GE pool, and match candidates to pending SI list locally.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
@@ -11,9 +11,6 @@
 (function () {
     'use strict';
 
-    /***********************
-     * Basic Settings
-     ***********************/
     const TEST_SI_URL = "https://susy.mdpi.com/special_issue/process/1877901";
     const UNLOCK_DAYS = 90;
     const MAX_GE_PER_SI = 5;
@@ -36,9 +33,6 @@
         setTimeout(renderPendingSIRecommendations, 1000);
     }
 
-    /***********************
-     * UI Panel
-     ***********************/
     function createAssistantPanel() {
         if (document.getElementById("mdpi-ge-assistant-panel")) return;
 
@@ -49,12 +43,12 @@
         Object.assign(mini.style, {
             position: "fixed",
             right: "18px",
-            bottom: "18px",
+            bottom: "88px",
             zIndex: "999999",
             padding: "10px 14px",
             border: "none",
             borderRadius: "20px",
-            background: "#1677ff",
+            background: "#eb2f96",
             color: "white",
             cursor: "pointer",
             fontSize: "13px",
@@ -68,7 +62,7 @@
         Object.assign(panel.style, {
             position: "fixed",
             right: "18px",
-            bottom: "18px",
+            bottom: "88px",
             width: "430px",
             maxHeight: "82vh",
             overflow: "auto",
@@ -82,9 +76,9 @@
         });
 
         panel.innerHTML = `
-            <div style="background:#1677ff;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+            <div style="background:#eb2f96;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
                 <span>MDPI GE Auto-Add Assistant</span>
-                <button id="gea-close" style="border:none;background:white;color:#1677ff;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
+                <button id="gea-close" style="border:none;background:white;color:#eb2f96;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
             </div>
 
             <div style="padding:12px;">
@@ -115,13 +109,13 @@
                 padding: 8px;
                 border: none;
                 border-radius: 8px;
-                background: #f0f5ff;
-                color: #003a8c;
+                background: #fff0f6;
+                color: #c41d7f;
                 cursor: pointer;
                 font-size: 13px;
                 text-align: left;
             }
-            .gea-btn:hover { background:#d6e4ff; }
+            .gea-btn:hover { background:#ffd6e7; }
             .gea-btn.danger { background:#fff1f0; color:#a8071a; }
             .gea-badge {
                 display:inline-block;
@@ -179,9 +173,6 @@
         if (el) el.textContent = status;
     }
 
-    /***********************
-     * CSV Import
-     ***********************/
     function importCSV() {
         const box = document.getElementById("gea-csv-box");
         const output = document.getElementById("gea-output");
@@ -290,9 +281,6 @@
         return result.map(x => x.trim());
     }
 
-    /***********************
-     * Screening Logic
-     ***********************/
     function startScreening() {
         const pool = getJSON(LS_GE_POOL, []);
         if (!pool.length) {
@@ -582,9 +570,6 @@
         updateStatus(`Checked ${email}: ${result.status}`);
     }
 
-    /***********************
-     * Pending SI Matching
-     ***********************/
     function renderPendingSIRecommendations() {
         const output = document.getElementById("gea-output");
         const results = getJSON(LS_SCREEN_RESULTS, {});
@@ -707,9 +692,6 @@
             .filter(x => !stop.has(x));
     }
 
-    /***********************
-     * Export / Clear
-     ***********************/
     function exportResults() {
         const results = getJSON(LS_SCREEN_RESULTS, {});
         const rows = Object.values(results);
@@ -764,9 +746,6 @@
         if (output) output.value = "";
     }
 
-    /***********************
-     * Helpers
-     ***********************/
     function findEmailInput() {
         const selectors = [
             "input[type='email']",
