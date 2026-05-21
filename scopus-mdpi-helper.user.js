@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      6.0
-// @description  Scopus quick screening + instant MDPI/PubPeer/Retraction automation
+// @version      5.6
+// @description  Scopus quick screening + instant MDPI/Retraction automation
 // @author       Jiali Tang
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -261,24 +261,7 @@
     }
 
     function runPubPeerPage() {
-        const params = new URLSearchParams(window.location.search);
-        const q = params.get("q");
-        if (!q) return;
-
-        const searchKey = "pubpeer_searched_" + q;
-        if (sessionStorage.getItem(searchKey)) return;
-        sessionStorage.setItem(searchKey, "1");
-
-        waitForElement(findSearchInput, input => {
-            fillInput(input, q);
-
-            waitForElement(() => {
-                return findButtonByText(["Search"]) ||
-                    document.querySelector("button[type='submit'], input[type='submit']");
-            }, btn => {
-                btn.click();
-            }, 3000);
-        }, 3000);
+        return;
     }
 
     function runRetractionPage() {
@@ -293,11 +276,7 @@
         waitForElement(findRetractionInput, input => {
             fillInput(input, name);
 
-            waitForElement(() => {
-                return document.querySelector("input[type='submit']") ||
-                    document.querySelector("button[type='submit']") ||
-                    findButtonByText(["Search", "Submit", "Go"]);
-            }, btn => {
+            waitForElement(findRetractionSearchButton, btn => {
                 btn.click();
             }, 3000);
         }, 3000);
@@ -319,6 +298,17 @@
                 clearInterval(timer);
             }
         }, 50);
+    }
+
+    function findRetractionSearchButton() {
+        const candidates = Array.from(
+            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+        );
+
+        return candidates.find(el => {
+            const text = (el.innerText || el.value || "").trim().toLowerCase();
+            return text === "search";
+        });
     }
 
     function findCorrectNextButton(input) {
@@ -399,33 +389,12 @@
         return null;
     }
 
-    function findSearchInput() {
-        const selectors = [
-            "input[type='search']",
-            "input[name*='search' i]",
-            "input[id*='search' i]",
-            "input[placeholder*='search' i]",
-            "input[type='text']"
-        ];
-
-        for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el && !el.disabled && el.offsetParent !== null) return el;
-        }
-
-        return null;
-    }
-
     function findRetractionInput() {
         const selectors = [
             "input[id*='Author' i]",
             "input[name*='Author' i]",
             "input[id*='author' i]",
             "input[name*='author' i]",
-            "input[id*='Search' i]",
-            "input[name*='Search' i]",
-            "input[id*='txt' i]",
-            "input[name*='txt' i]",
             "input[type='text']"
         ];
 
@@ -435,17 +404,6 @@
         }
 
         return null;
-    }
-
-    function findButtonByText(words) {
-        const candidates = Array.from(
-            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
-        );
-
-        return candidates.find(el => {
-            const text = (el.innerText || el.value || "").trim().toLowerCase();
-            return words.some(word => text.includes(word.toLowerCase()));
-        });
     }
 
     function fillInput(input, value) {
