@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.0
-// @description  Import GE CSV, load pending SI queue, and add up to 5 GE per SI per round.
+// @version      3.1
+// @description  Import GE CSV, load pending SI queue, and add up to 5 proposed GE per SI per round.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -16,16 +16,16 @@
     const MAX_PROCEED_PER_SI_PER_ROUND = 5;
     const UNLOCK_DAYS = 90;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v30";
-    const LS_SI_QUEUE = "mdpi_si_queue_v30";
-    const LS_RESULTS = "mdpi_ge_results_v30";
-    const LS_RUNNING = "mdpi_ge_running_v30";
-    const LS_AUTO_PROCEED = "mdpi_ge_auto_proceed_v30";
-    const LS_LOG = "mdpi_ge_log_v30";
-    const LS_SI_INDEX = "mdpi_si_index_v30";
-    const LS_GE_INDEX = "mdpi_ge_index_v30";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v30";
-    const LS_CURRENT = "mdpi_current_task_v30";
+    const LS_GE_POOL = "mdpi_ge_pool_v31";
+    const LS_SI_QUEUE = "mdpi_si_queue_v31";
+    const LS_RESULTS = "mdpi_ge_results_v31";
+    const LS_RUNNING = "mdpi_ge_running_v31";
+    const LS_AUTO_PROCEED = "mdpi_ge_auto_proceed_v31";
+    const LS_LOG = "mdpi_ge_log_v31";
+    const LS_SI_INDEX = "mdpi_si_index_v31";
+    const LS_GE_INDEX = "mdpi_ge_index_v31";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v31";
+    const LS_CURRENT = "mdpi_current_task_v31";
 
     ready(() => {
         createPanel();
@@ -97,7 +97,7 @@
                 </label>
 
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    每一轮中，每个 SI 最多 Proceed 5 次。开启新一轮后，每个 SI 会重新计数。
+                    每一轮中，每个 SI 最多 Proceed 5 次。遇到系统提示 “cannot exceed 5” 时，会自动切换到下一个 SI。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -149,6 +149,7 @@
         };
 
         const closeBtn = document.getElementById("gea-close");
+
         closeBtn.addEventListener("mousedown", e => {
             e.preventDefault();
             e.stopPropagation();
@@ -201,6 +202,7 @@
             if (e.target.id === "gea-close") return;
 
             dragging = true;
+
             const rect = panel.getBoundingClientRect();
             offsetX = e.clientX - rect.left;
             offsetY = e.clientY - rect.top;
@@ -215,11 +217,14 @@
 
         document.addEventListener("mousemove", e => {
             if (!dragging) return;
+
             panel.style.left = `${e.clientX - offsetX}px`;
             panel.style.top = `${e.clientY - offsetY}px`;
         });
 
-        document.addEventListener("mouseup", () => dragging = false);
+        document.addEventListener("mouseup", () => {
+            dragging = false;
+        });
     }
 
     function updateStatus(extra = "") {
@@ -235,6 +240,7 @@
 
         const rows = Object.values(results);
         const clicked = rows.filter(r => r.status === "PROCEED_CLICKED").length;
+        const full = rows.filter(r => r.status === "SI_FULL").length;
         const canProceed = rows.filter(r => r.status === "CAN_PROCEED").length;
         const failed = rows.filter(r => String(r.status || "").startsWith("FAILED")).length;
         const notEligible = rows.filter(r => r.status === "NOT_ELIGIBLE").length;
@@ -249,6 +255,7 @@
             `Current GE index: ${geIndex + 1}/${pool.length}`,
             `Current SI Proceed count this round: ${currentSICount}/${MAX_PROCEED_PER_SI_PER_ROUND}`,
             `Proceed clicked this round: ${clicked}`,
+            `SI full hits: ${full}`,
             `Can Proceed but not clicked: ${canProceed}`,
             `Not eligible: ${notEligible}`,
             `Failed: ${failed}`,
@@ -271,7 +278,7 @@
     function log(msg) {
         const arr = getJSON(LS_LOG, []);
         arr.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
-        localStorage.setItem(LS_LOG, JSON.stringify(arr.slice(0, 180)));
+        localStorage.setItem(LS_LOG, JSON.stringify(arr.slice(0, 220)));
     }
 
     function getLogText() {
@@ -295,6 +302,7 @@
             if (!m) return;
 
             const id = m[1];
+
             if (seen.has(id)) return;
             seen.add(id);
 
@@ -340,21 +348,25 @@
         if (!file) return;
 
         const reader = new FileReader();
+
         reader.onload = () => {
             const text = String(reader.result || "");
             const box = document.getElementById("gea-csv");
             if (box) box.value = text;
             importCSV(text);
         };
+
         reader.readAsText(file, "UTF-8");
     }
 
     function importCSVText() {
         const csv = document.getElementById("gea-csv").value.trim();
+
         if (!csv) {
             alert("Please paste CSV.");
             return;
         }
+
         importCSV(csv);
     }
 
@@ -367,12 +379,15 @@
 
         normalized.forEach(r => {
             const key = r.email.toLowerCase();
+
             if (seen.has(key)) return;
+
             seen.add(key);
             deduped.push(r);
         });
 
         localStorage.setItem(LS_GE_POOL, JSON.stringify(deduped));
+
         log(`Imported ${deduped.length} GE.`);
         updateStatus();
     }
@@ -434,6 +449,7 @@
         }
 
         localStorage.setItem(LS_RUNNING, "1");
+
         log("Resumed current round.");
         updateStatus();
         dispatchNext();
@@ -442,6 +458,7 @@
     function stopRun() {
         localStorage.setItem(LS_RUNNING, "0");
         localStorage.removeItem(LS_CURRENT);
+
         log("Stopped.");
         updateStatus();
     }
@@ -478,6 +495,7 @@
                 if (!shouldUseGE(ge)) continue;
 
                 const key = makeResultKey(si.id, ge.email);
+
                 if (results[key]?.checkedAt) continue;
 
                 const current = {
@@ -488,10 +506,13 @@
                 };
 
                 localStorage.setItem(LS_CURRENT, JSON.stringify(current));
+
                 log(`Opening SI ${si.id} for ${ge.email}`);
                 updateStatus();
 
-                location.href = `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
+                location.href =
+                    `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
+
                 return;
             }
 
@@ -501,16 +522,20 @@
 
         localStorage.setItem(LS_RUNNING, "0");
         localStorage.removeItem(LS_CURRENT);
+
         log("Round completed: no more SI/GE combinations.");
         updateStatus();
+
         alert("Round completed.");
     }
 
     function shouldUseGE(ge) {
         if (!ge || !ge.email) return false;
+
         if (shouldSkipStatus(ge.status)) return false;
 
         const unlock = getUnlockTime(ge.invitedDate);
+
         if (unlock && Date.now() < unlock.getTime()) return false;
 
         return true;
@@ -518,25 +543,41 @@
 
     function shouldSkipStatus(status) {
         const s = String(status || "").toLowerCase();
-        return ["deny", "blacklist", "skip", "do not", "declined", "rejected", "invalid", "section board", "board member"]
-            .some(w => s.includes(w));
+
+        return [
+            "deny",
+            "blacklist",
+            "skip",
+            "do not",
+            "declined",
+            "rejected",
+            "invalid",
+            "section board",
+            "board member"
+        ].some(w => s.includes(w));
     }
 
     function getUnlockTime(text) {
         if (!text) return null;
+
         const d = parseDate(text);
+
         if (!d) return null;
+
         return new Date(d.getTime() + UNLOCK_DAYS * 24 * 60 * 60 * 1000);
     }
 
     function parseDate(text) {
         const s = String(text || "").trim();
+
         if (!s) return null;
 
         let d = new Date(s);
+
         if (!isNaN(d.getTime())) return d;
 
         const m = s.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+
         if (m) {
             d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
             if (!isNaN(d.getTime())) return d;
@@ -547,13 +588,16 @@
 
     function runOnSIPage() {
         const params = new URLSearchParams(location.search);
+
         if (params.get("geaRun") !== "1") return;
 
         const siId = params.get("siId");
         const email = params.get("email");
+
         if (!siId || !email) return;
 
         localStorage.setItem(LS_CURRENT, JSON.stringify({ siId, email }));
+
         log(`SI page loaded: SI ${siId}, ${email}`);
         updateStatus();
 
@@ -574,6 +618,7 @@
                     reason: "Next button not found",
                     pageUrl: location.href
                 });
+
                 setTimeout(dispatchNext, 1200);
             });
         }, 10000, () => {
@@ -583,6 +628,7 @@
                 reason: "E-Mail input not found",
                 pageUrl: location.href
             });
+
             setTimeout(dispatchNext, 1200);
         });
     }
@@ -592,10 +638,32 @@
 
         const timer = setInterval(() => {
             count++;
+
             closePopup();
 
             const proceedBtn = findButtonByText("proceed");
             const lower = (document.body.innerText || "").toLowerCase();
+
+            const negative = detectNegative(lower);
+
+            if (negative === "SI_FULL_5_GE") {
+                clearInterval(timer);
+
+                markSIFull(siId);
+                moveToNextSI();
+
+                record(siId, email, {
+                    status: "SI_FULL",
+                    eligible: false,
+                    reason: "The number of proposed GE cannot exceed 5 in this SI",
+                    pageUrl: location.href
+                });
+
+                log(`SI ${siId} is full. Moving to next SI.`);
+
+                setTimeout(dispatchNext, 1200);
+                return;
+            }
 
             if (proceedBtn) {
                 clearInterval(timer);
@@ -604,18 +672,22 @@
 
                 if (!auto) {
                     log(`Proceed found for SI ${siId}, ${email}. Auto Proceed OFF.`);
+
                     record(siId, email, {
                         status: "CAN_PROCEED",
                         eligible: true,
                         reason: "Proceed found; Auto Proceed OFF",
                         pageUrl: location.href
                     });
+
                     setTimeout(dispatchNext, 1200);
                     return;
                 }
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
+
                 clickElement(proceedBtn);
+
                 incrementSICount(siId);
 
                 record(siId, email, {
@@ -629,9 +701,9 @@
                 return;
             }
 
-            const negative = detectNegative(lower);
             if (negative) {
                 clearInterval(timer);
+
                 log(`Not eligible: SI ${siId}, ${email}. Reason: ${negative}`);
 
                 record(siId, email, {
@@ -652,6 +724,7 @@
 
             if (count > 100) {
                 clearInterval(timer);
+
                 log(`Timeout: SI ${siId}, ${email}`);
 
                 record(siId, email, {
@@ -666,31 +739,52 @@
         }, 250);
     }
 
+    function detectNegative(lower) {
+        if (
+            lower.includes("number of proposed ge cannot exceed 5") ||
+            lower.includes("cannot exceed 5 at most in each special issue") ||
+            lower.includes("proposed ge cannot exceed 5")
+        ) {
+            return "SI_FULL_5_GE";
+        }
+
+        const signals = [
+            "already invited",
+            "has been invited",
+            "not allowed",
+            "not allow",
+            "cannot be invited",
+            "can not be invited",
+            "not eligible",
+            "duplicate",
+            "not found",
+            "no record",
+            "past 90 days",
+            "past 90"
+        ];
+
+        return signals.find(s => lower.includes(s)) || "";
+    }
+
+    function markSIFull(siId) {
+        const counts = getJSON(LS_SI_COUNTS, {});
+        counts[siId] = MAX_PROCEED_PER_SI_PER_ROUND;
+        localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
+    }
+
+    function moveToNextSI() {
+        const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+        localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
+        localStorage.setItem(LS_GE_INDEX, "0");
+        log(`Move to next SI index: ${siIndex + 2}`);
+    }
+
     function incrementSICount(siId) {
         const counts = getJSON(LS_SI_COUNTS, {});
         counts[siId] = (counts[siId] || 0) + 1;
         localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
         log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
     }
-
-function detectNegative(lower) {
-    const signals = [
-        "already invited",
-        "has been invited",
-        "not allowed",
-        "not allow",
-        "cannot be invited",
-        "can not be invited",
-        "not eligible",
-        "duplicate",
-        "not found",
-        "no record",
-        "past 90 days",
-        "past 90"
-    ];
-
-    return signals.find(s => lower.includes(s)) || "";
-}
 
     function record(siId, email, data) {
         const results = getJSON(LS_RESULTS, {});
@@ -820,6 +914,7 @@ function detectNegative(lower) {
 
     function parseCSV(text) {
         const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim());
+
         if (lines.length < 2) return [];
 
         const headers = splitCSVLine(lines[0]);
@@ -856,6 +951,7 @@ function detectNegative(lower) {
         }
 
         result.push(cur);
+
         return result.map(x => x.trim());
     }
 
@@ -883,7 +979,9 @@ function detectNegative(lower) {
 
     function csvEscape(v) {
         const s = String(v ?? "");
+
         if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+
         return s;
     }
 
