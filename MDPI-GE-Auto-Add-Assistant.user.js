@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.3
-// @description  Multi-SI GE auto-add assistant: one email once per round, up to 5 Proceed per SI, safer Proceed confirmation.
+// @version      3.4
+// @description  Multi-SI GE auto-add assistant: default auto Proceed, Esc to stop, one email once per round, up to 5 Proceed per SI.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -15,22 +15,22 @@
     const PENDING_LIST_URL = "https://susy.mdpi.com/special_issue_pending/list?page_limit=100&sort_field=special_issue_pending.date_update&sort=DESC";
     const MAX_PROCEED_PER_SI_PER_ROUND = 5;
     const UNLOCK_DAYS = 90;
-    const NO_PROCEED_TIMEOUT_TICKS = 40; // 10s
+    const NO_PROCEED_TIMEOUT_TICKS = 40;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v33";
-    const LS_SI_QUEUE = "mdpi_si_queue_v33";
-    const LS_RESULTS = "mdpi_ge_results_v33";
-    const LS_RUNNING = "mdpi_ge_running_v33";
-    const LS_AUTO_PROCEED = "mdpi_ge_auto_proceed_v33";
-    const LS_LOG = "mdpi_ge_log_v33";
-    const LS_SI_INDEX = "mdpi_si_index_v33";
-    const LS_GE_INDEX = "mdpi_ge_index_v33";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v33";
-    const LS_CURRENT = "mdpi_current_task_v33";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v33";
+    const LS_GE_POOL = "mdpi_ge_pool_v34";
+    const LS_SI_QUEUE = "mdpi_si_queue_v34";
+    const LS_RESULTS = "mdpi_ge_results_v34";
+    const LS_RUNNING = "mdpi_ge_running_v34";
+    const LS_LOG = "mdpi_ge_log_v34";
+    const LS_SI_INDEX = "mdpi_si_index_v34";
+    const LS_GE_INDEX = "mdpi_ge_index_v34";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v34";
+    const LS_CURRENT = "mdpi_current_task_v34";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v34";
 
     ready(() => {
         createPanel();
+        setupEscStop();
 
         if (location.href.includes("/special_issue/process/")) {
             runOnSIPage();
@@ -74,7 +74,7 @@
             position: "fixed",
             right: "18px",
             bottom: "88px",
-            width: "520px",
+            width: "500px",
             maxHeight: "84vh",
             overflow: "auto",
             zIndex: "1000000",
@@ -93,13 +93,8 @@
             </div>
 
             <div style="padding:12px;font-size:13px;">
-                <label style="display:block;margin-bottom:8px;color:#a8071a;font-weight:700;">
-                    <input type="checkbox" id="gea-auto-proceed">
-                    Auto Proceed Mode
-                </label>
-
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    每一轮中，每个邮箱只处理一次；每个 SI 最多 Proceed 5 次；Proceed 后等待确认再继续。
+                    默认自动 Proceed；每轮每个邮箱只处理一次；每个 SI 最多 Proceed 5 次；按 Esc 可立即停止。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -113,11 +108,11 @@
                 <button class="gea-btn" id="gea-export-btn">Export Results</button>
                 <button class="gea-btn danger" id="gea-clear-btn">Clear Local Data</button>
 
-                <textarea id="gea-csv" placeholder="Paste CSV here if not using file upload." style="width:100%;height:95px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
+                <textarea id="gea-csv" placeholder="Paste CSV here if not using file upload." style="width:100%;height:90px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
 
                 <div id="gea-status" style="margin-top:8px;padding:8px;background:#fff0f6;border:1px solid #ffd6e7;border-radius:8px;font-size:12px;white-space:pre-wrap;color:#333;"></div>
 
-                <textarea id="gea-output" style="width:100%;height:240px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
+                <textarea id="gea-output" style="width:100%;height:230px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
             </div>
         `;
 
@@ -173,14 +168,6 @@
             mini.style.setProperty("z-index", "1000001", "important");
         }, true);
 
-        const autoBox = document.getElementById("gea-auto-proceed");
-        autoBox.checked = localStorage.getItem(LS_AUTO_PROCEED) === "1";
-        autoBox.onchange = () => {
-            localStorage.setItem(LS_AUTO_PROCEED, autoBox.checked ? "1" : "0");
-            log(autoBox.checked ? "Auto Proceed ON." : "Auto Proceed OFF.");
-            updateStatus();
-        };
-
         document.getElementById("gea-file").onchange = importCSVFile;
         document.getElementById("gea-import-btn").onclick = importCSVText;
         document.getElementById("gea-open-list-btn").onclick = () => location.href = PENDING_LIST_URL;
@@ -195,6 +182,15 @@
         updateStatus();
     }
 
+    function setupEscStop() {
+        document.addEventListener("keydown", e => {
+            if (e.key === "Escape") {
+                stopRun("Stopped by Esc.");
+                alert("GE Assistant stopped.");
+            }
+        });
+    }
+
     function makeDraggable(panel, handle) {
         let dragging = false;
         let offsetX = 0;
@@ -205,6 +201,7 @@
 
             dragging = true;
             const rect = panel.getBoundingClientRect();
+
             offsetX = e.clientX - rect.left;
             offsetY = e.clientY - rect.top;
 
@@ -218,6 +215,7 @@
 
         document.addEventListener("mousemove", e => {
             if (!dragging) return;
+
             panel.style.left = `${e.clientX - offsetX}px`;
             panel.style.top = `${e.clientY - offsetY}px`;
         });
@@ -233,8 +231,8 @@
         const results = getJSON(LS_RESULTS, {});
         const counts = getJSON(LS_SI_COUNTS, {});
         const usedEmails = getJSON(LS_USED_EMAILS, []);
+
         const running = localStorage.getItem(LS_RUNNING) === "1";
-        const auto = true;
         const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
         const geIndex = Number(localStorage.getItem(LS_GE_INDEX) || 0);
         const current = getJSON(LS_CURRENT, null);
@@ -260,7 +258,7 @@
             `No Proceed skipped: ${noProceed}`,
             `Failed: ${failed}`,
             `Running: ${running ? "Yes" : "No"}`,
-            `Auto Proceed: ${auto ? "ON" : "OFF"}`,
+            `Auto Proceed: ON`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -299,10 +297,13 @@
         links.forEach(a => {
             const href = a.href;
             const m = href.match(/\/special_issue\/process\/(\d+)/);
+
             if (!m) return;
 
             const id = m[1];
+
             if (seen.has(id)) return;
+
             seen.add(id);
 
             const row = a.closest("tr") || a.closest("div") || a.parentElement;
@@ -347,21 +348,27 @@
         if (!file) return;
 
         const reader = new FileReader();
+
         reader.onload = () => {
             const text = String(reader.result || "");
             const box = document.getElementById("gea-csv");
+
             if (box) box.value = text;
+
             importCSV(text);
         };
+
         reader.readAsText(file, "UTF-8");
     }
 
     function importCSVText() {
         const csv = document.getElementById("gea-csv").value.trim();
+
         if (!csv) {
             alert("Please paste CSV.");
             return;
         }
+
         importCSV(csv);
     }
 
@@ -374,12 +381,15 @@
 
         normalized.forEach(r => {
             const key = r.email.toLowerCase();
+
             if (seen.has(key)) return;
+
             seen.add(key);
             deduped.push(r);
         });
 
         localStorage.setItem(LS_GE_POOL, JSON.stringify(deduped));
+
         log(`Imported ${deduped.length} GE.`);
         updateStatus();
     }
@@ -390,6 +400,7 @@
                 const key = Object.keys(row).find(k => clean(k) === clean(n));
                 if (key) return String(row[key] || "").trim();
             }
+
             return "";
         };
 
@@ -442,16 +453,18 @@
         }
 
         localStorage.setItem(LS_RUNNING, "1");
+
         log("Resumed current round.");
         updateStatus();
         dispatchNext();
     }
 
-    function stopRun() {
+    function stopRun(message = "Stopped.") {
         localStorage.setItem(LS_RUNNING, "0");
         localStorage.removeItem(LS_CURRENT);
-        log("Stopped.");
-        updateStatus();
+
+        log(message);
+        updateStatus(message);
     }
 
     function dispatchNext() {
@@ -487,6 +500,7 @@
                 if (!shouldUseGE(ge, usedEmails)) continue;
 
                 const key = makeResultKey(si.id, ge.email);
+
                 if (results[key]?.checkedAt) continue;
 
                 const current = {
@@ -501,25 +515,17 @@
                 log(`Opening SI ${si.id} for ${ge.email}`);
                 updateStatus();
 
-                location.href =
-                    `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
+                location.href = `${si.url}?geaRun=1&siId=${encodeURIComponent(si.id)}&email=${encodeURIComponent(ge.email)}`;
 
                 return;
             }
 
-            localStorage.setItem(LS_RUNNING, "0");
-            localStorage.removeItem(LS_CURRENT);
-            log("All usable emails have been processed. Program stopped.");
-            updateStatus("All emails used. Stopped.");
+            stopRun("All usable emails have been processed. Program stopped.");
             alert("All usable emails have been processed.");
             return;
         }
 
-        localStorage.setItem(LS_RUNNING, "0");
-        localStorage.removeItem(LS_CURRENT);
-
-        log("Round completed: no more SI/GE combinations.");
-        updateStatus();
+        stopRun("Round completed: no more SI/GE combinations.");
         alert("Round completed.");
     }
 
@@ -536,6 +542,7 @@
         }
 
         const unlock = getUnlockTime(ge.invitedDate);
+
         if (unlock && Date.now() < unlock.getTime()) {
             addUsedEmail(ge.email, "Locked by Invited Date");
             return false;
@@ -546,9 +553,11 @@
 
     function addUsedEmail(email, reason = "Used") {
         const key = String(email || "").toLowerCase();
+
         if (!key) return;
 
         const arr = getJSON(LS_USED_EMAILS, []);
+
         if (!arr.includes(key)) {
             arr.push(key);
             localStorage.setItem(LS_USED_EMAILS, JSON.stringify(arr));
@@ -574,19 +583,25 @@
 
     function getUnlockTime(text) {
         if (!text) return null;
+
         const d = parseDate(text);
+
         if (!d) return null;
+
         return new Date(d.getTime() + UNLOCK_DAYS * 24 * 60 * 60 * 1000);
     }
 
     function parseDate(text) {
         const s = String(text || "").trim();
+
         if (!s) return null;
 
         let d = new Date(s);
+
         if (!isNaN(d.getTime())) return d;
 
         const m = s.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+
         if (m) {
             d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
             if (!isNaN(d.getTime())) return d;
@@ -673,28 +688,13 @@
                 });
 
                 log(`SI ${siId} is full. Moving to next SI. Email not marked used.`);
+
                 setTimeout(dispatchNext, 800);
                 return;
             }
 
             if (proceedBtn) {
                 clearInterval(timer);
-
-                const auto = true;
-
-                if (!auto) {
-                    log(`Proceed found for SI ${siId}, ${email}. Auto Proceed OFF.`);
-
-                    record(siId, email, {
-                        status: "CAN_PROCEED",
-                        eligible: true,
-                        reason: "Proceed found; Auto Proceed OFF",
-                        pageUrl: location.href
-                    });
-
-                    setTimeout(dispatchNext, 800);
-                    return;
-                }
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
                 clickElement(proceedBtn);
@@ -779,6 +779,7 @@
                 });
 
                 log(`SI ${siId} full after Proceed. Email not marked used.`);
+
                 setTimeout(dispatchNext, 800);
                 return;
             }
@@ -797,6 +798,7 @@
                 });
 
                 log(`Proceed handled for SI ${siId}, ${email}.`);
+
                 setTimeout(dispatchNext, 1200);
             }
         }, 250);
@@ -1049,16 +1051,6 @@
 
         return s;
     }
-
-    document.addEventListener("keydown", e => {
-    if (e.key === "Escape") {
-        localStorage.setItem(LS_RUNNING, "0");
-        localStorage.removeItem(LS_CURRENT);
-        log("Stopped by Esc.");
-        updateStatus("Stopped by Esc.");
-        alert("GE Assistant stopped.");
-    }
-});
 
     function clearData() {
         if (!confirm("Clear all local GE/SI data, results, counts, used emails, and log?")) return;
