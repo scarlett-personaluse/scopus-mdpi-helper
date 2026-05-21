@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         MDPI GE Auto-Add Assistant Multi-SI Round
+// @name         MDPI GE Auto-Add Assistant Multi-SI Round Stable
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.5
-// @description  Multi-SI GE auto-add assistant: default auto Proceed, Esc to stop, one email once per round, up to 5 Proceed per SI.
+// @version      3.6
+// @description  Stable Multi-SI GE auto-add assistant: Next -> Proceed or skip; keep GE index when switching SI.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -17,16 +17,16 @@
     const UNLOCK_DAYS = 90;
     const NO_PROCEED_TIMEOUT_TICKS = 40;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v35";
-    const LS_SI_QUEUE = "mdpi_si_queue_v35";
-    const LS_RESULTS = "mdpi_ge_results_v35";
-    const LS_RUNNING = "mdpi_ge_running_v35";
-    const LS_LOG = "mdpi_ge_log_v35";
-    const LS_SI_INDEX = "mdpi_si_index_v35";
-    const LS_GE_INDEX = "mdpi_ge_index_v35";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v35";
-    const LS_CURRENT = "mdpi_current_task_v35";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v35";
+    const LS_GE_POOL = "mdpi_ge_pool_v36";
+    const LS_SI_QUEUE = "mdpi_si_queue_v36";
+    const LS_RESULTS = "mdpi_ge_results_v36";
+    const LS_RUNNING = "mdpi_ge_running_v36";
+    const LS_LOG = "mdpi_ge_log_v36";
+    const LS_SI_INDEX = "mdpi_si_index_v36";
+    const LS_GE_INDEX = "mdpi_ge_index_v36";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v36";
+    const LS_CURRENT = "mdpi_current_task_v36";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v36";
 
     ready(() => {
         createPanel();
@@ -34,16 +34,6 @@
 
         if (location.href.includes("/special_issue/process/")) {
             runOnSIPage();
-
-            setTimeout(() => {
-                const running = localStorage.getItem(LS_RUNNING) === "1";
-                const hasRunParam = new URLSearchParams(location.search).get("geaRun") === "1";
-
-                if (running && !hasRunParam) {
-                    log("Page reloaded after Proceed. Continue to next GE.");
-                    dispatchNext();
-                }
-            }, 1500);
         }
     });
 
@@ -104,7 +94,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；每轮每个邮箱只处理一次；每个 SI 最多 Proceed 5 次；按 Esc 可立即停止。
+                    默认自动 Proceed；每轮每个邮箱只处理一次；每个 SI 最多 Proceed 5 次；换 SI 后继续后续邮箱。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -225,7 +215,6 @@
 
         document.addEventListener("mousemove", e => {
             if (!dragging) return;
-
             panel.style.left = `${e.clientX - offsetX}px`;
             panel.style.top = `${e.clientY - offsetY}px`;
         });
@@ -307,11 +296,9 @@
         links.forEach(a => {
             const href = a.href;
             const m = href.match(/\/special_issue\/process\/(\d+)/);
-
             if (!m) return;
 
             const id = m[1];
-
             if (seen.has(id)) return;
 
             seen.add(id);
@@ -391,7 +378,6 @@
 
         normalized.forEach(r => {
             const key = r.email.toLowerCase();
-
             if (seen.has(key)) return;
 
             seen.add(key);
@@ -496,7 +482,7 @@
             if (count >= MAX_PROCEED_PER_SI_PER_ROUND) {
                 log(`SI ${si.id} reached ${MAX_PROCEED_PER_SI_PER_ROUND}. Moving to next SI.`);
                 siIndex++;
-                geIndex = 0;
+                localStorage.setItem(LS_SI_INDEX, String(siIndex));
                 continue;
             }
 
@@ -595,7 +581,6 @@
         if (!text) return null;
 
         const d = parseDate(text);
-
         if (!d) return null;
 
         return new Date(d.getTime() + UNLOCK_DAYS * 24 * 60 * 60 * 1000);
@@ -607,7 +592,6 @@
         if (!s) return null;
 
         let d = new Date(s);
-
         if (!isNaN(d.getTime())) return d;
 
         const m = s.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
@@ -635,15 +619,13 @@
         log(`SI page loaded: SI ${siId}, ${email}`);
         updateStatus();
 
-        closePopup();
-
         waitForElement(findEmailInput, input => {
             log(`Filling ${email}`);
             fillInput(input, email);
 
             waitForElement(() => findButtonByText("next"), nextBtn => {
                 log("Click Next");
-                clickElement(nextBtn);
+                nextBtn.click();
                 waitForProceedOrFailure(siId, email);
             }, 10000, () => {
                 addUsedEmail(email, "FAILED_NO_NEXT");
@@ -677,14 +659,14 @@
         const timer = setInterval(() => {
             count++;
 
-            closePopup();
-
             const proceedBtn = findButtonByText("proceed");
             const lower = (document.body.innerText || "").toLowerCase();
 
-            const negative = detectNegative(lower);
-
-            if (negative === "SI_FULL_5_GE") {
+            if (
+                lower.includes("number of proposed ge cannot exceed 5") ||
+                lower.includes("cannot exceed 5 at most in each special issue") ||
+                lower.includes("proposed ge cannot exceed 5")
+            ) {
                 clearInterval(timer);
 
                 markSIFull(siId);
@@ -693,11 +675,9 @@
                 record(siId, email, {
                     status: "SI_FULL",
                     eligible: false,
-                    reason: "The number of proposed GE cannot exceed 5 in this SI",
+                    reason: "SI full, move to next SI",
                     pageUrl: location.href
                 });
-
-                log(`SI ${siId} is full. Moving to next SI. Email not marked used.`);
 
                 setTimeout(dispatchNext, 800);
                 return;
@@ -708,59 +688,31 @@
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
 
+                proceedBtn.click();
+
                 incrementSICount(siId);
                 addUsedEmail(email, "Proceed clicked");
 
                 record(siId, email, {
                     status: "PROCEED_CLICKED",
                     eligible: true,
-                    reason: "Proceed clicked; continue to next GE",
+                    reason: "Proceed clicked automatically",
                     pageUrl: location.href
                 });
 
-                clickElement(proceedBtn);
-
-                setTimeout(() => {
-                    dispatchNext();
-                }, 1500);
-
+                setTimeout(dispatchNext, 2500);
                 return;
-            }
-
-            if (negative) {
-                clearInterval(timer);
-
-                addUsedEmail(email, negative);
-
-                log(`No Proceed / Not eligible. Email used this round: ${email}. Reason: ${negative}`);
-
-                record(siId, email, {
-                    status: "NO_PROCEED_SKIP_EMAIL",
-                    eligible: false,
-                    reason: negative,
-                    pageUrl: location.href
-                });
-
-                setTimeout(dispatchNext, 800);
-                return;
-            }
-
-            if (count % 12 === 0) {
-                log(`Waiting result: SI ${siId}, ${email}...`);
-                updateStatus();
             }
 
             if (count > NO_PROCEED_TIMEOUT_TICKS) {
                 clearInterval(timer);
 
-                addUsedEmail(email, "No Proceed button appeared");
-
-                log(`No Proceed. Email used this round: ${email}`);
+                addUsedEmail(email, "No Proceed");
 
                 record(siId, email, {
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
-                    reason: "No Proceed button appeared; email used this round",
+                    reason: "No Proceed appeared, skip email",
                     pageUrl: location.href
                 });
 
@@ -769,49 +721,24 @@
         }, 250);
     }
 
-    function detectNegative(lower) {
-        if (
-            lower.includes("number of proposed ge cannot exceed 5") ||
-            lower.includes("cannot exceed 5 at most in each special issue") ||
-            lower.includes("proposed ge cannot exceed 5")
-        ) {
-            return "SI_FULL_5_GE";
-        }
-
-        const signals = [
-            "already invited",
-            "has been invited",
-            "not allowed",
-            "not allow",
-            "cannot be invited",
-            "can not be invited",
-            "not eligible",
-            "duplicate",
-            "not found",
-            "no record",
-            "past 90 days",
-            "past 90",
-            "blocked",
-            "block"
-        ];
-
-        return signals.find(s => lower.includes(s)) || "";
-    }
-
     function markSIFull(siId) {
         const counts = getJSON(LS_SI_COUNTS, {});
         counts[siId] = MAX_PROCEED_PER_SI_PER_ROUND;
         localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
     }
 
-function moveToNextSI() {
-    const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+    function moveToNextSI() {
+        const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+        localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
+        log(`Move to next SI index: ${siIndex + 2}; keep current GE index.`);
+    }
 
-    localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
-
-    // 不重置 GE_INDEX，避免换 SI 后从头筛选同一批邮箱
-    log(`Move to next SI index: ${siIndex + 2}; keep current GE index.`);
-}
+    function incrementSICount(siId) {
+        const counts = getJSON(LS_SI_COUNTS, {});
+        counts[siId] = (counts[siId] || 0) + 1;
+        localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
+        log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
+    }
 
     function record(siId, email, data) {
         const results = getJSON(LS_RESULTS, {});
@@ -874,14 +801,9 @@ function moveToNextSI() {
 
         return candidates.find(el => {
             const t = (el.innerText || el.value || "").trim().toLowerCase();
-            return t === target;
+            return t === target || t.includes(target);
         });
     }
-
-function clickElement(el) {
-    if (!el) return;
-    el.click();
-}
 
     function fillInput(input, value) {
         input.focus();
@@ -917,25 +839,6 @@ function clickElement(el) {
                 if (onTimeout) onTimeout();
             }
         }, 80);
-    }
-
-    function closePopup() {
-        const candidates = Array.from(document.querySelectorAll("button, a, span, div"));
-
-        const closeBtn = candidates.find(el => {
-            const text = (el.innerText || el.textContent || "").trim();
-            const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-            const cls = (el.className || "").toString().toLowerCase();
-
-            return (
-                text === "×" ||
-                text === "x" ||
-                aria.includes("close") ||
-                cls.includes("close")
-            );
-        });
-
-        if (closeBtn) closeBtn.click();
     }
 
     function parseCSV(text) {
@@ -977,7 +880,6 @@ function clickElement(el) {
         }
 
         result.push(cur);
-
         return result.map(x => x.trim());
     }
 
@@ -1005,9 +907,7 @@ function clickElement(el) {
 
     function csvEscape(v) {
         const s = String(v ?? "");
-
         if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-
         return s;
     }
 
