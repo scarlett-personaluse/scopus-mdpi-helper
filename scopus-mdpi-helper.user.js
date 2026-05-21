@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.6
-// @description  Scopus quick screening + instant MDPI/Retraction automation
+// @version      5.7
+// @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
 // @author       Jiali Tang
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -19,56 +19,94 @@
 (function () {
     'use strict';
 
-    const MDPI_INTERNAL_URL = "https://susy.mdpi.com/special_issue/process/1877901";
-    const PUBPEER_SEARCH_URL = "https://pubpeer.org/search?q=";
-    const RETRACTION_URL = "https://retractiondatabase.org/RetractionSearch.aspx";
+    const MDPI_INTERNAL_URL =
+        "https://susy.mdpi.com/special_issue/process/1877901";
+
+    const PUBPEER_SEARCH_URL =
+        "https://pubpeer.org/search?q=";
+
     const url = window.location.href;
 
     if (url.includes("scopus.com/authid/detail.uri")) {
         runScopusPage();
-    } else if (url.includes("susy.mdpi.com/special_issue/process/1877901")) {
+    }
+    else if (url.includes("susy.mdpi.com/special_issue/process/1877901")) {
         runMdpiPage();
-    } else if (url.includes("pubpeer.org")) {
+    }
+    else if (url.includes("pubpeer.org")) {
         runPubPeerPage();
-    } else if (url.includes("retractiondatabase.org/RetractionSearch.aspx")) {
+    }
+    else if (url.includes("retractiondatabase.org/RetractionSearch.aspx")) {
         runRetractionPage();
     }
 
     createSelectedEmailMdpiButton();
 
+    // =====================================================
+    // Scopus
+    // =====================================================
+
     function runScopusPage() {
+
         if (url.startsWith("https://www2.scopus.com/authid/detail.uri?authorId=")) {
-            window.location.href = url.replace("www2.scopus.com", "www.scopus.com");
+            window.location.href =
+                url.replace("www2.scopus.com", "www.scopus.com");
             return;
         }
 
         const params = new URLSearchParams(window.location.search);
         const authorId = params.get("authorId");
+
         if (!authorId) return;
 
-        const apiUrl = `https://www.scopus.com/api/authors/${authorId}`;
+        const apiUrl =
+            `https://www.scopus.com/api/authors/${authorId}`;
 
         window.addEventListener("load", () => {
+
             fetch(apiUrl)
                 .then(res => res.json())
                 .then(data => {
-                    const rawName = data.preferredName?.full || "";
-                    const name = formatName(rawName);
-                    const email = data.emailAddress || "";
-                    const institution = data.latestAffiliatedInstitution?.name || "";
-                    createButtonBar(name, email, institution);
+
+                    const rawName =
+                        data.preferredName?.full || "";
+
+                    const name =
+                        formatName(rawName);
+
+                    const email =
+                        data.emailAddress || "";
+
+                    const institution =
+                        data.latestAffiliatedInstitution?.name || "";
+
+                    createButtonBar(
+                        name,
+                        email,
+                        institution
+                    );
+
                 })
                 .catch(err => {
+
                     console.error(err);
+
                     createButtonBar("", "", "");
+
                 });
         });
     }
 
+    // =====================================================
+    // Button Bar
+    // =====================================================
+
     function createButtonBar(name, email, institution) {
+
         if (document.getElementById("scopus-ge-button-bar")) return;
 
         const bar = document.createElement("div");
+
         bar.id = "scopus-ge-button-bar";
 
         Object.assign(bar.style, {
@@ -88,8 +126,13 @@
         });
 
         const emailText = document.createElement("span");
+
         emailText.textContent = email || "No email";
-        emailText.title = email ? "Click to copy email" : "No email found";
+
+        emailText.title =
+            email
+                ? "Click to copy email"
+                : "No email found";
 
         Object.assign(emailText.style, {
             padding: "8px 12px",
@@ -99,59 +142,103 @@
             fontSize: "13px",
             fontWeight: "600",
             cursor: email ? "pointer" : "default",
-            border: "1px solid " + (email ? "#b7eb8f" : "#ffa39e")
+            border:
+                "1px solid " +
+                (email ? "#b7eb8f" : "#ffa39e")
         });
 
         emailText.onclick = () => {
-            if (email) GM_setClipboard(email);
+
+            if (!email) return;
+
+            GM_setClipboard(email);
+
         };
 
         bar.appendChild(emailText);
 
         const buttons = [
+
             {
                 text: "MDPI",
                 color: "#1677ff",
                 onclick: () => {
+
                     if (!email) return;
+
                     GM_setClipboard(email);
-                    window.open(`${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(email)}`, "_blank");
+
+                    window.open(
+                        `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(email)}`,
+                        "_blank"
+                    );
                 }
             },
+
             {
                 text: "PubPeer",
                 color: "#722ed1",
                 onclick: () => {
+
                     if (!name) return;
-                    window.open(`${PUBPEER_SEARCH_URL}${encodeURIComponent(name)}`, "_blank");
+
+                    window.open(
+                        `${PUBPEER_SEARCH_URL}${encodeURIComponent(name)}`,
+                        "_blank"
+                    );
                 }
             },
+
             {
                 text: "Retraction",
                 color: "#fa541c",
                 onclick: () => {
+
                     if (!name) return;
-                    window.open(`${RETRACTION_URL}?geName=${encodeURIComponent(name)}`, "_blank");
+
+                    window.open(
+                        buildRetractionSearchUrl(name),
+                        "_blank"
+                    );
                 }
             },
+
             {
                 text: "Google",
                 color: "#595959",
                 onclick: () => {
-                    window.open(`https://www.google.com/search?q=${encodeURIComponent(`${name} ${institution}`)}`, "_blank");
+
+                    const query =
+                        `${name} ${institution}`;
+
+                    window.open(
+                        `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+                        "_blank"
+                    );
                 }
             },
+
             {
                 text: "Scholar",
                 color: "#13c2c2",
                 onclick: () => {
-                    window.open(`https://scholar.google.com/scholar?q=${encodeURIComponent(`${name} ${institution}`)}`, "_blank");
+
+                    const query =
+                        `${name} ${institution}`;
+
+                    window.open(
+                        `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
+                        "_blank"
+                    );
                 }
             }
+
         ];
 
         buttons.forEach(config => {
+
             const btn = document.createElement("button");
+
             btn.textContent = config.text;
 
             Object.assign(btn.style, {
@@ -166,19 +253,28 @@
             });
 
             btn.onclick = config.onclick;
+
             bar.appendChild(btn);
+
         });
 
         document.body.appendChild(bar);
     }
 
+    // =====================================================
+    // Selected Email Floating Button
+    // =====================================================
+
     function createSelectedEmailMdpiButton() {
+
         if (url.includes("susy.mdpi.com")) return;
 
         window.addEventListener("load", () => {
+
             if (document.getElementById("selected-email-mdpi-btn")) return;
 
             const btn = document.createElement("button");
+
             btn.id = "selected-email-mdpi-btn";
             btn.textContent = "MDPI";
 
@@ -202,134 +298,210 @@
             let currentEmail = "";
 
             document.addEventListener("mouseup", () => {
+
                 setTimeout(() => {
-                    const selection = window.getSelection();
-                    const selectedText = selection.toString().trim();
-                    const emailMatch = selectedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+
+                    const selection =
+                        window.getSelection();
+
+                    const selectedText =
+                        selection.toString().trim();
+
+                    const emailMatch =
+                        selectedText.match(
+                            /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+                        );
 
                     if (!emailMatch || selection.rangeCount === 0) {
+
                         btn.style.display = "none";
                         currentEmail = "";
+
                         return;
                     }
 
                     currentEmail = emailMatch[0];
 
-                    const rect = selection.getRangeAt(0).getBoundingClientRect();
+                    const rect =
+                        selection.getRangeAt(0)
+                            .getBoundingClientRect();
 
-                    btn.style.left = `${rect.right + window.scrollX + 8}px`;
-                    btn.style.top = `${rect.top + window.scrollY - 4}px`;
+                    btn.style.left =
+                        `${rect.right + window.scrollX + 8}px`;
+
+                    btn.style.top =
+                        `${rect.top + window.scrollY - 4}px`;
+
                     btn.style.display = "block";
+
                 }, 80);
             });
 
             document.addEventListener("mousedown", event => {
+
                 if (event.target === btn) return;
+
                 btn.style.display = "none";
+
             });
 
             btn.onclick = event => {
+
                 event.preventDefault();
                 event.stopPropagation();
 
                 if (!currentEmail) return;
 
                 GM_setClipboard(currentEmail);
-                window.open(`${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(currentEmail)}`, "_blank");
+
+                window.open(
+                    `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(currentEmail)}`,
+                    "_blank"
+                );
             };
         });
     }
 
+    // =====================================================
+    // MDPI
+    // =====================================================
+
     function runMdpiPage() {
-        const params = new URLSearchParams(window.location.search);
-        const email = params.get("geEmail");
+
+        const params =
+            new URLSearchParams(window.location.search);
+
+        const email =
+            params.get("geEmail");
+
         if (!email) return;
 
         closeMdpiPopup();
 
-        waitForElement(findEmailInput, input => {
-            fillInput(input, email);
+        waitForElement(
+            findEmailInput,
+            input => {
 
-            waitForElement(() => findCorrectNextButton(input), nextBtn => {
-                nextBtn.click();
+                fillInput(input, email);
 
-                setTimeout(closeMdpiPopup, 300);
-                setTimeout(closeMdpiPopup, 800);
-                setTimeout(closeMdpiPopup, 1500);
-            }, 3000);
-        }, 3000);
+                waitForElement(
+                    () => findCorrectNextButton(input),
+                    nextBtn => {
+
+                        nextBtn.click();
+
+                        setTimeout(closeMdpiPopup, 300);
+                        setTimeout(closeMdpiPopup, 800);
+                        setTimeout(closeMdpiPopup, 1500);
+
+                    },
+                    3000
+                );
+            },
+            3000
+        );
     }
+
+    // =====================================================
+    // PubPeer
+    // =====================================================
 
     function runPubPeerPage() {
+
+        // URL 本身已经包含 search?q=
+        // 不再自动点击 search
         return;
     }
 
-   function runRetractionPage() {
-    const params = new URLSearchParams(window.location.search);
-    const name = params.get("geName");
-    if (!name) return;
+    // =====================================================
+    // Retraction
+    // =====================================================
 
-    // 如果已经是最终结果页，就不要再执行任何动作
-    if (window.location.hash.includes("auth%3d") || window.location.hash.includes("auth=")) {
+    function runRetractionPage() {
+
+        // 已经直接进入最终结果页
+        // 不再做任何自动搜索动作
         return;
     }
 
-    const encodedName = encodeURIComponent(name).replace(/%20/g, "+");
+    // =====================================================
+    // Helper
+    // =====================================================
 
-    const targetUrl =
-        `https://retractiondatabase.org/RetractionSearch.aspx?geName=${encodedName}#?geName%3d${encodedName}%26auth%3d${encodedName}`;
+    function buildRetractionSearchUrl(name) {
 
-    window.location.replace(targetUrl);
-}
+        const encodedName =
+            encodeURIComponent(name)
+                .replace(/%20/g, "+");
+
+        return `https://retractiondatabase.org/RetractionSearch.aspx?geName=${encodedName}#?geName%3d${encodedName}%26auth%3d${encodedName}`;
+    }
+
     function waitForElement(getter, callback, timeout = 3000) {
+
         const start = Date.now();
 
         const timer = setInterval(() => {
+
             const el = getter();
 
             if (el) {
+
                 clearInterval(timer);
+
                 callback(el);
+
                 return;
             }
 
             if (Date.now() - start > timeout) {
+
                 clearInterval(timer);
+
             }
+
         }, 50);
     }
 
-    function findRetractionSearchButton() {
-        const candidates = Array.from(
-            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
-        );
-
-        return candidates.find(el => {
-            const text = (el.innerText || el.value || "").trim().toLowerCase();
-            return text === "search";
-        });
-    }
-
     function findCorrectNextButton(input) {
+
         const buttons = Array.from(
-            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
+            document.querySelectorAll(
+                "button, input[type='button'], input[type='submit'], a"
+            )
         );
 
-        const nextButtons = buttons.filter(el => {
-            const text = (el.innerText || el.value || "").trim().toLowerCase();
-            return text === "next";
-        });
+        const nextButtons =
+            buttons.filter(el => {
+
+                const text =
+                    (el.innerText || el.value || "")
+                        .trim()
+                        .toLowerCase();
+
+                return text === "next";
+            });
 
         if (!nextButtons.length) return null;
 
-        const inputRect = input.getBoundingClientRect();
+        const inputRect =
+            input.getBoundingClientRect();
 
         nextButtons.sort((a, b) => {
-            const ra = a.getBoundingClientRect();
-            const rb = b.getBoundingClientRect();
 
-            const da = Math.abs(ra.top - inputRect.bottom) + Math.abs(ra.left - inputRect.left);
-            const db = Math.abs(rb.top - inputRect.bottom) + Math.abs(rb.left - inputRect.left);
+            const ra =
+                a.getBoundingClientRect();
+
+            const rb =
+                b.getBoundingClientRect();
+
+            const da =
+                Math.abs(ra.top - inputRect.bottom) +
+                Math.abs(ra.left - inputRect.left);
+
+            const db =
+                Math.abs(rb.top - inputRect.bottom) +
+                Math.abs(rb.left - inputRect.left);
 
             return da - db;
         });
@@ -338,100 +510,167 @@
     }
 
     function closeMdpiPopup() {
+
         const candidates = Array.from(
-            document.querySelectorAll("button, a, span, div")
+            document.querySelectorAll(
+                "button, a, span, div"
+            )
         );
 
-        const closeBtn = candidates.find(el => {
-            const text = (el.innerText || el.textContent || "").trim();
-            const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-            const cls = (el.className || "").toString().toLowerCase();
+        const closeBtn =
+            candidates.find(el => {
 
-            return (
-                text === "×" ||
-                text === "x" ||
-                aria.includes("close") ||
-                cls.includes("close")
-            );
-        });
+                const text =
+                    (el.innerText || el.textContent || "")
+                        .trim();
+
+                const aria =
+                    (el.getAttribute("aria-label") || "")
+                        .toLowerCase();
+
+                const cls =
+                    (el.className || "")
+                        .toString()
+                        .toLowerCase();
+
+                return (
+                    text === "×" ||
+                    text === "x" ||
+                    aria.includes("close") ||
+                    cls.includes("close")
+                );
+            });
 
         if (closeBtn) closeBtn.click();
     }
 
     function findEmailInput() {
+
         const selectors = [
+
             "input[type='email']",
             "input[name*='email' i]",
             "input[id*='email' i]",
             "input[placeholder*='email' i]"
+
         ];
 
         for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el && !el.disabled && el.offsetParent !== null) return el;
+
+            const el =
+                document.querySelector(selector);
+
+            if (
+                el &&
+                !el.disabled &&
+                el.offsetParent !== null
+            ) {
+                return el;
+            }
         }
 
-        const labels = Array.from(document.querySelectorAll("label, td, th, div, span"));
-
-        const emailLabel = labels.find(el =>
-            /email/i.test(el.textContent || "") &&
-            (el.textContent || "").length < 80
+        const labels = Array.from(
+            document.querySelectorAll(
+                "label, td, th, div, span"
+            )
         );
 
+        const emailLabel =
+            labels.find(el =>
+
+                /email/i.test(el.textContent || "") &&
+                (el.textContent || "").length < 80
+
+            );
+
         if (emailLabel) {
-            const parent = emailLabel.closest("tr, div, form") || document.body;
-            const input = parent.querySelector("input[type='text'], input:not([type])");
 
-            if (input && !input.disabled && input.offsetParent !== null) return input;
-        }
+            const parent =
+                emailLabel.closest("tr, div, form")
+                || document.body;
 
-        return null;
-    }
+            const input =
+                parent.querySelector(
+                    "input[type='text'], input:not([type])"
+                );
 
-    function findRetractionInput() {
-        const selectors = [
-            "input[id*='Author' i]",
-            "input[name*='Author' i]",
-            "input[id*='author' i]",
-            "input[name*='author' i]",
-            "input[type='text']"
-        ];
-
-        for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el && !el.disabled && el.offsetParent !== null) return el;
+            if (
+                input &&
+                !input.disabled &&
+                input.offsetParent !== null
+            ) {
+                return input;
+            }
         }
 
         return null;
     }
 
     function fillInput(input, value) {
+
         input.focus();
 
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
-            "value"
-        )?.set;
+        const nativeInputValueSetter =
+            Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype,
+                "value"
+            )?.set;
 
         if (nativeInputValueSetter) {
-            nativeInputValueSetter.call(input, value);
+
+            nativeInputValueSetter.call(
+                input,
+                value
+            );
+
         } else {
+
             input.value = value;
+
         }
 
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-        input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
+        input.dispatchEvent(
+            new Event("input", {
+                bubbles: true
+            })
+        );
+
+        input.dispatchEvent(
+            new Event("change", {
+                bubbles: true
+            })
+        );
+
+        input.dispatchEvent(
+            new KeyboardEvent("keyup", {
+                bubbles: true
+            })
+        );
+
+        input.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                bubbles: true
+            })
+        );
     }
 
     function formatName(scopusName) {
+
         if (!scopusName) return "";
 
         if (scopusName.includes(",")) {
-            const parts = scopusName.split(",");
-            const last = parts[0].trim();
-            const first = parts.slice(1).join(",").trim();
+
+            const parts =
+                scopusName.split(",");
+
+            const last =
+                parts[0].trim();
+
+            const first =
+                parts.slice(1)
+                    .join(",")
+                    .trim();
+
             return `${first} ${last}`.trim();
         }
 
