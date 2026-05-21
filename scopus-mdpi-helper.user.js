@@ -2,7 +2,7 @@
 // @author       Jiali Tang
 // @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
 // @namespace    http://tampermonkey.net/
-// @version      5.3
+// @version      5.4
 // @description  Scopus quick screening + floating MDPI button beside selected email
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
@@ -271,9 +271,9 @@
                     } else {
                         alert("Email filled, but the correct Next button was not found.");
                     }
-                }, 600);
+                }, 200);
 
-            }, 1200);
+            }, 500);
         });
     }
 
