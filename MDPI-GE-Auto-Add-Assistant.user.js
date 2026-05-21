@@ -26,129 +26,165 @@
         runOnSIPage();
     }
 
-    function createPanel() {
-        if (document.getElementById("gea-panel")) return;
+function createPanel() {
+    if (document.getElementById("gea-panel")) return;
 
-        const mini = document.createElement("button");
-        mini.id = "gea-mini";
-        mini.textContent = "GE Assistant";
+    const mini = document.createElement("button");
+    mini.id = "gea-mini";
+    mini.textContent = "GE Assistant";
 
-        Object.assign(mini.style, {
-            position: "fixed",
-            right: "18px",
-            bottom: "88px",
-            zIndex: "999999",
-            padding: "10px 14px",
-            border: "none",
-            borderRadius: "20px",
-            background: "#eb2f96",
-            color: "white",
-            cursor: "pointer",
-            fontWeight: "700",
-            boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
-        });
+    Object.assign(mini.style, {
+        position: "fixed",
+        right: "18px",
+        bottom: "88px",
+        zIndex: "999999",
+        padding: "10px 14px",
+        border: "none",
+        borderRadius: "20px",
+        background: "#eb2f96",
+        color: "white",
+        cursor: "pointer",
+        fontWeight: "700",
+        boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
+    });
 
-        const panel = document.createElement("div");
-        panel.id = "gea-panel";
+    const panel = document.createElement("div");
+    panel.id = "gea-panel";
 
-        Object.assign(panel.style, {
-            position: "fixed",
-            right: "18px",
-            bottom: "88px",
-            width: "440px",
-            maxHeight: "82vh",
-            overflow: "auto",
-            zIndex: "999999",
-            background: "#fff",
-            border: "1px solid #ccc",
-            borderRadius: "12px",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
-            fontFamily: "Arial, sans-serif",
-            display: "none"
-        });
+    Object.assign(panel.style, {
+        position: "fixed",
+        right: "18px",
+        bottom: "88px",
+        width: "460px",
+        maxHeight: "82vh",
+        overflow: "auto",
+        zIndex: "1000000",
+        background: "#fff",
+        border: "1px solid #ccc",
+        borderRadius: "12px",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+        fontFamily: "Arial, sans-serif",
+        display: "none"
+    });
 
-        panel.innerHTML = `
-            <div style="background:#eb2f96;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
-                <span>MDPI GE Semi Auto Add</span>
-                <button id="gea-close" style="border:none;background:white;color:#eb2f96;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
+    panel.innerHTML = `
+        <div id="gea-drag-header" style="background:#eb2f96;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:move;">
+            <span>MDPI GE Semi Auto Add</span>
+            <button id="gea-close" style="border:none;background:white;color:#eb2f96;border-radius:6px;cursor:pointer;font-weight:700;padding:2px 8px;">−</button>
+        </div>
+
+        <div style="padding:12px;font-size:13px;">
+            <label style="display:block;margin-bottom:8px;color:#a8071a;font-weight:700;">
+                <input type="checkbox" id="gea-auto-proceed">
+                Auto Proceed Mode
+            </label>
+
+            <div style="font-size:12px;color:#666;margin-bottom:8px;">
+                If Auto Proceed is checked, the script will click Proceed when available.
+                If unchecked, it only records CAN_PROCEED.
             </div>
 
-            <div style="padding:12px;font-size:13px;">
-                <label style="display:block;margin-bottom:8px;color:#a8071a;font-weight:700;">
-                    <input type="checkbox" id="gea-auto-proceed">
-                    Auto Proceed Mode
-                </label>
+            <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
 
-                <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    If Auto Proceed is checked, the script will click Proceed when available.
-                    If unchecked, it only records CAN_PROCEED.
-                </div>
+            <button class="gea-btn" id="gea-import-btn">Import CSV Text</button>
+            <button class="gea-btn" id="gea-start-btn">Start Screening / Add</button>
+            <button class="gea-btn" id="gea-stop-btn">Stop</button>
+            <button class="gea-btn" id="gea-export-btn">Export Results</button>
+            <button class="gea-btn danger" id="gea-clear-btn">Clear Local Data</button>
 
-                <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
+            <textarea id="gea-csv" placeholder="Paste CSV here if not using file upload." style="width:100%;height:120px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
 
-                <button class="gea-btn" id="gea-import-btn">Import CSV Text</button>
-                <button class="gea-btn" id="gea-start-btn">Start Screening / Add</button>
-                <button class="gea-btn" id="gea-stop-btn">Stop</button>
-                <button class="gea-btn" id="gea-export-btn">Export Results</button>
-                <button class="gea-btn danger" id="gea-clear-btn">Clear Local Data</button>
+            <div id="gea-status" style="margin-top:8px;padding:8px;background:#fff0f6;border:1px solid #ffd6e7;border-radius:8px;font-size:12px;white-space:pre-wrap;color:#333;"></div>
 
-                <textarea id="gea-csv" placeholder="Paste CSV here if not using file upload." style="width:100%;height:120px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
+            <textarea id="gea-output" style="width:100%;height:230px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
+        </div>
+    `;
 
-                <div id="gea-status" style="margin-top:8px;white-space:pre-wrap;color:#333;"></div>
+    const style = document.createElement("style");
+    style.textContent = `
+        .gea-btn {
+            width:100%;
+            margin:4px 0;
+            padding:8px;
+            border:none;
+            border-radius:8px;
+            background:#fff0f6;
+            color:#c41d7f;
+            cursor:pointer;
+            text-align:left;
+        }
+        .gea-btn:hover { background:#ffd6e7; }
+        .gea-btn.danger { background:#fff1f0;color:#a8071a; }
+    `;
 
-                <textarea id="gea-output" style="width:100%;height:230px;margin-top:8px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;"></textarea>
-            </div>
-        `;
+    document.head.appendChild(style);
+    document.body.appendChild(mini);
+    document.body.appendChild(panel);
 
-        const style = document.createElement("style");
-        style.textContent = `
-            .gea-btn {
-                width:100%;
-                margin:4px 0;
-                padding:8px;
-                border:none;
-                border-radius:8px;
-                background:#fff0f6;
-                color:#c41d7f;
-                cursor:pointer;
-                text-align:left;
-            }
-            .gea-btn:hover { background:#ffd6e7; }
-            .gea-btn.danger { background:#fff1f0;color:#a8071a; }
-        `;
-
-        document.head.appendChild(style);
-        document.body.appendChild(mini);
-        document.body.appendChild(panel);
-
-        mini.onclick = () => {
-            mini.style.display = "none";
-            panel.style.display = "block";
-            updateStatus();
-        };
-
-        document.getElementById("gea-close").onclick = () => {
-            panel.style.display = "none";
-            mini.style.display = "block";
-        };
-
-        const autoBox = document.getElementById("gea-auto-proceed");
-        autoBox.checked = localStorage.getItem(LS_AUTO_PROCEED) === "1";
-        autoBox.onchange = () => {
-            localStorage.setItem(LS_AUTO_PROCEED, autoBox.checked ? "1" : "0");
-            updateStatus(autoBox.checked ? "Auto Proceed enabled." : "Auto Proceed disabled.");
-        };
-
-        document.getElementById("gea-file").onchange = importCSVFile;
-        document.getElementById("gea-import-btn").onclick = importCSVText;
-        document.getElementById("gea-start-btn").onclick = startRun;
-        document.getElementById("gea-stop-btn").onclick = stopRun;
-        document.getElementById("gea-export-btn").onclick = exportResults;
-        document.getElementById("gea-clear-btn").onclick = clearData;
-
+    mini.onclick = () => {
+        mini.style.display = "none";
+        panel.style.display = "block";
         updateStatus();
-    }
+    };
 
+    document.getElementById("gea-close").onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        panel.style.display = "none";
+        mini.style.display = "block";
+    };
+
+    const autoBox = document.getElementById("gea-auto-proceed");
+    autoBox.checked = localStorage.getItem(LS_AUTO_PROCEED) === "1";
+    autoBox.onchange = () => {
+        localStorage.setItem(LS_AUTO_PROCEED, autoBox.checked ? "1" : "0");
+        updateStatus(autoBox.checked ? "Auto Proceed enabled." : "Auto Proceed disabled.");
+    };
+
+    document.getElementById("gea-file").onchange = importCSVFile;
+    document.getElementById("gea-import-btn").onclick = importCSVText;
+    document.getElementById("gea-start-btn").onclick = startRun;
+    document.getElementById("gea-stop-btn").onclick = stopRun;
+    document.getElementById("gea-export-btn").onclick = exportResults;
+    document.getElementById("gea-clear-btn").onclick = clearData;
+
+    makeDraggable(panel, document.getElementById("gea-drag-header"));
+
+    updateStatus();
+}
+    function makeDraggable(panel, handle) {
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    handle.addEventListener("mousedown", e => {
+        if (e.target.id === "gea-close") return;
+
+        isDragging = true;
+
+        const rect = panel.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+
+        panel.style.left = rect.left + "px";
+        panel.style.top = rect.top + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+
+        e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", e => {
+        if (!isDragging) return;
+
+        panel.style.left = `${e.clientX - offsetX}px`;
+        panel.style.top = `${e.clientY - offsetY}px`;
+    });
+
+    document.addEventListener("mouseup", () => {
+        isDragging = false;
+    });
+}
     function updateStatus(extra = "") {
         const pool = getJSON(LS_GE_POOL, []);
         const results = getJSON(LS_RESULTS, {});
