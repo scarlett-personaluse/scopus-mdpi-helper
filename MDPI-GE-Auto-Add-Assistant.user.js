@@ -804,12 +804,14 @@
         localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
     }
 
-    function moveToNextSI() {
-        const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
-        localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
-        localStorage.setItem(LS_GE_INDEX, "0");
-        log(`Move to next SI index: ${siIndex + 2}`);
-    }
+function moveToNextSI() {
+    const siIndex = Number(localStorage.getItem(LS_SI_INDEX) || 0);
+
+    localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
+
+    // 不重置 GE_INDEX，避免换 SI 后从头筛选同一批邮箱
+    log(`Move to next SI index: ${siIndex + 2}; keep current GE index.`);
+}
 
     function record(siId, email, data) {
         const results = getJSON(LS_RESULTS, {});
@@ -876,11 +878,27 @@
         });
     }
 
-    function clickElement(el) {
-        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  function clickElement(el) {
+    if (!el) return;
+
+    el.scrollIntoView({
+        behavior: "instant",
+        block: "center",
+        inline: "center"
+    });
+
+    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(type => {
+        el.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        }));
+    });
+
+    if (typeof el.click === "function") {
         el.click();
     }
+}
 
     function fillInput(input, value) {
         input.focus();
