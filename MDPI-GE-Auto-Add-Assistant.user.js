@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.4
+// @version      3.5
 // @description  Multi-SI GE auto-add assistant: default auto Proceed, Esc to stop, one email once per round, up to 5 Proceed per SI.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
@@ -17,16 +17,16 @@
     const UNLOCK_DAYS = 90;
     const NO_PROCEED_TIMEOUT_TICKS = 40;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v34";
-    const LS_SI_QUEUE = "mdpi_si_queue_v34";
-    const LS_RESULTS = "mdpi_ge_results_v34";
-    const LS_RUNNING = "mdpi_ge_running_v34";
-    const LS_LOG = "mdpi_ge_log_v34";
-    const LS_SI_INDEX = "mdpi_si_index_v34";
-    const LS_GE_INDEX = "mdpi_ge_index_v34";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v34";
-    const LS_CURRENT = "mdpi_current_task_v34";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v34";
+    const LS_GE_POOL = "mdpi_ge_pool_v35";
+    const LS_SI_QUEUE = "mdpi_si_queue_v35";
+    const LS_RESULTS = "mdpi_ge_results_v35";
+    const LS_RUNNING = "mdpi_ge_running_v35";
+    const LS_LOG = "mdpi_ge_log_v35";
+    const LS_SI_INDEX = "mdpi_si_index_v35";
+    const LS_GE_INDEX = "mdpi_ge_index_v35";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v35";
+    const LS_CURRENT = "mdpi_current_task_v35";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v35";
 
     ready(() => {
         createPanel();
@@ -34,6 +34,16 @@
 
         if (location.href.includes("/special_issue/process/")) {
             runOnSIPage();
+
+            setTimeout(() => {
+                const running = localStorage.getItem(LS_RUNNING) === "1";
+                const hasRunParam = new URLSearchParams(location.search).get("geaRun") === "1";
+
+                if (running && !hasRunParam) {
+                    log("Page reloaded after Proceed. Continue to next GE.");
+                    dispatchNext();
+                }
+            }, 1500);
         }
     });
 
@@ -174,7 +184,7 @@
         document.getElementById("gea-load-si-btn").onclick = loadSIQueueFromCurrentPage;
         document.getElementById("gea-new-round-btn").onclick = startNewRound;
         document.getElementById("gea-resume-btn").onclick = resumeRound;
-        document.getElementById("gea-stop-btn").onclick = stopRun;
+        document.getElementById("gea-stop-btn").onclick = () => stopRun("Stopped.");
         document.getElementById("gea-export-btn").onclick = exportResults;
         document.getElementById("gea-clear-btn").onclick = clearData;
 
@@ -238,7 +248,7 @@
         const current = getJSON(LS_CURRENT, null);
 
         const rows = Object.values(results);
-        const clicked = rows.filter(r => r.status === "PROCEED_CONFIRMED" || r.status === "PROCEED_CLICKED").length;
+        const clicked = rows.filter(r => r.status === "PROCEED_CLICKED").length;
         const full = rows.filter(r => r.status === "SI_FULL").length;
         const noProceed = rows.filter(r => r.status === "NO_PROCEED_SKIP_EMAIL").length;
         const failed = rows.filter(r => String(r.status || "").startsWith("FAILED")).length;
@@ -253,7 +263,7 @@
             `Current GE index: ${geIndex + 1}/${pool.length}`,
             `Current SI Proceed count this round: ${currentSICount}/${MAX_PROCEED_PER_SI_PER_ROUND}`,
             `Used emails this round: ${usedEmails.length}`,
-            `Proceed clicked/confirmed: ${clicked}`,
+            `Proceed clicked: ${clicked}`,
             `SI full hits: ${full}`,
             `No Proceed skipped: ${noProceed}`,
             `Failed: ${failed}`,
@@ -697,9 +707,23 @@
                 clearInterval(timer);
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
+
+                incrementSICount(siId);
+                addUsedEmail(email, "Proceed clicked");
+
+                record(siId, email, {
+                    status: "PROCEED_CLICKED",
+                    eligible: true,
+                    reason: "Proceed clicked; continue to next GE",
+                    pageUrl: location.href
+                });
+
                 clickElement(proceedBtn);
 
-                waitAfterProceed(siId, email);
+                setTimeout(() => {
+                    dispatchNext();
+                }, 1500);
+
                 return;
             }
 
@@ -745,46 +769,6 @@
         }, 250);
     }
 
-function waitAfterProceed(siId, email) {
-    setTimeout(() => {
-        const lower = (document.body.innerText || "").toLowerCase();
-
-        const full =
-            lower.includes("number of proposed ge cannot exceed 5") ||
-            lower.includes("cannot exceed 5 at most in each special issue") ||
-            lower.includes("proposed ge cannot exceed 5");
-
-        if (full) {
-            markSIFull(siId);
-            moveToNextSI();
-
-            record(siId, email, {
-                status: "SI_FULL",
-                eligible: false,
-                reason: "SI became full after Proceed click",
-                pageUrl: location.href
-            });
-
-            log(`SI ${siId} full after Proceed. Email not marked used.`);
-            setTimeout(dispatchNext, 800);
-            return;
-        }
-
-        incrementSICount(siId);
-        addUsedEmail(email, "Proceed clicked");
-
-        record(siId, email, {
-            status: "PROCEED_CLICKED",
-            eligible: true,
-            reason: "Proceed clicked; continue to next GE",
-            pageUrl: location.href
-        });
-
-        log(`Proceed handled for SI ${siId}, ${email}.`);
-        setTimeout(dispatchNext, 1200);
-    }, 1200);
-}
-
     function detectNegative(lower) {
         if (
             lower.includes("number of proposed ge cannot exceed 5") ||
@@ -825,13 +809,6 @@ function waitAfterProceed(siId, email) {
         localStorage.setItem(LS_SI_INDEX, String(siIndex + 1));
         localStorage.setItem(LS_GE_INDEX, "0");
         log(`Move to next SI index: ${siIndex + 2}`);
-    }
-
-    function incrementSICount(siId) {
-        const counts = getJSON(LS_SI_COUNTS, {});
-        counts[siId] = (counts[siId] || 0) + 1;
-        localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
-        log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
     }
 
     function record(siId, email, data) {
