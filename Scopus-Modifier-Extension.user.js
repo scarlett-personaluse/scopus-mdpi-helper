@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Scopus GE Quick Screening Buttons + Floating MDPI Email Jump
+// @name         Scopus Modifier Extension
 // @namespace    http://tampermonkey.net/
-// @version      5.7
+// @version      5.8
 // @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
 // @author       Jiali Tang
 // @match        https://www.scopus.com/authid/detail.uri?*
@@ -10,8 +10,8 @@
 // @match        https://pubpeer.org/*
 // @match        https://retractiondatabase.org/RetractionSearch.aspx*
 // @match        *://*/*
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/scopus-mdpi-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
 // @grant        GM_setClipboard
 // @connect      www.scopus.com
 // ==/UserScript==
