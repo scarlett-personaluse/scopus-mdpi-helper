@@ -4,6 +4,7 @@
 // @namespace     https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @description   Susy Modifier modified from SKDAY: add expanded GE quick reminder options and force GE quick invitation to use the Optional template.
 // @author        Jiali Tang, modified from SKDAY
+// @contributor   SKDAY
 // @homepageURL   https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @supportURL    https://github.com/scarlett-personaluse/scopus-mdpi-helper/issues
 // @icon64        https://susy.mdpi.com/build/img/design/susy-logo.png
