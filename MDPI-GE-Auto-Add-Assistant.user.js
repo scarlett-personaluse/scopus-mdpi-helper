@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round Stable
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.8
-// @description  Multi-SI GE auto-add assistant: switch SI only when page shows GE exceed-5 warning; faster no-Proceed skip.
+// @version      3.9
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; faster no-Proceed skip.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -13,13 +13,14 @@
     'use strict';
 
     const PENDING_LIST_URL = "https://susy.mdpi.com/special_issue_pending/list?page_limit=100&sort_field=special_issue_pending.date_update&sort=DESC";
-    // Do NOT switch SI by local Proceed count anymore.
-    // The script now switches SI only when the page displays the official full-warning text after clicking Next.
+
+    // Only switch SI when this warning appears after clicking Next.
     const FULL_WARNING_TEXT = "The number of proposed GE cannot exceed 5 at most in each special issue.";
+
     const UNLOCK_DAYS = 90;
 
     // Faster skip when Next was clicked but Proceed does not appear.
-    // 28 × 200 ms ≈ 5.6 s. Increase this if the MDPI page is slow.
+    // 28 × 200 ms ≈ 5.6 s. If the MDPI page is slow, increase this number.
     const NO_PROCEED_TIMEOUT_TICKS = 28;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
@@ -100,14 +101,14 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；Next / Proceed 使用稳定点击方式；每个邮箱本轮只处理一次；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；Next 后无 Proceed 会更快跳过。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；Next 后无 Proceed 会更快跳过。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
 
                 <button class="gea-btn" id="gea-import-btn">Import CSV Text</button>
                 <button class="gea-btn" id="gea-open-list-btn">Open Pending SI List</button>
-                <button class="gea-btn" id="gea-load-si-btn">Load SI Queue from Current Page</button>
+                <button class="gea-btn" id="gea-load-si-btn">Load Pending GE Invitation SI Queue</button>
                 <button class="gea-btn" id="gea-new-round-btn">Start New Round</button>
                 <button class="gea-btn" id="gea-resume-btn">Resume Current Round</button>
                 <button class="gea-btn" id="gea-stop-btn">Stop</button>
@@ -263,6 +264,7 @@
             `No Proceed skipped: ${noProceed}`,
             `Failed: ${failed}`,
             `Running: ${running ? "Yes" : "No"}`,
+            `SI Status Filter: Pending GE invitation only`,
             `Auto Proceed: ON`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
@@ -307,21 +309,29 @@
             const id = m[1];
             if (seen.has(id)) return;
 
+            const row = a.closest("tr") || a.closest("div") || a.parentElement;
+            const rowText = row ? (row.innerText || "") : "";
+
+            if (!isPendingGEInvitationStatus(rowText)) {
+                log(`Skip SI ${id}: Status is not Pending GE invitation.`);
+                return;
+            }
+
             seen.add(id);
 
-            const row = a.closest("tr") || a.closest("div") || a.parentElement;
             const title = extractSITitle(row, a);
 
             queue.push({
                 id,
                 title,
-                url: href.split("?")[0]
+                url: href.split("?")[0],
+                status: "Pending GE invitation"
             });
         });
 
         if (!queue.length) {
-            alert("No SI process links found on this page.");
-            log("No SI links found.");
+            alert("No SI with Status = Pending GE invitation found on this page.");
+            log("No Pending GE invitation SI found.");
             return;
         }
 
@@ -329,7 +339,7 @@
         localStorage.setItem(LS_SI_INDEX, "0");
         localStorage.setItem(LS_GE_INDEX, "0");
 
-        log(`Loaded ${queue.length} SI into queue.`);
+        log(`Loaded ${queue.length} Pending GE invitation SI into queue.`);
         updateStatus();
     }
 
@@ -344,6 +354,15 @@
         );
 
         return likely || (a.innerText || "").trim() || "Untitled SI";
+    }
+
+    function isPendingGEInvitationStatus(rowText) {
+        const text = String(rowText || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toLowerCase();
+
+        return text.includes("pending ge invitation");
     }
 
     function importCSVFile(e) {
@@ -428,7 +447,7 @@
         }
 
         if (!siQueue.length) {
-            alert("Please open pending SI list and click Load SI Queue first.");
+            alert("Please open pending SI list and click Load Pending GE Invitation SI Queue first.");
             return;
         }
 
@@ -483,10 +502,13 @@
         while (siIndex < siQueue.length) {
             const si = siQueue[siIndex];
 
-            // Important:
-            // Do not move to the next SI just because the local Proceed count reaches 5.
-            // The real source of truth is the MDPI page warning after clicking Next:
-            // "The number of proposed GE cannot exceed 5 at most in each special issue."
+            if (si.status && !isPendingGEInvitationStatus(si.status)) {
+                log(`Skip cached SI ${si.id}: Status is not Pending GE invitation.`);
+                siIndex++;
+                localStorage.setItem(LS_SI_INDEX, String(siIndex));
+                continue;
+            }
+
             while (geIndex < pool.length) {
                 const ge = pool[geIndex];
                 geIndex++;
