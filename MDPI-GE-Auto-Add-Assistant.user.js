@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MDPI GE Auto-Add Assistant Multi-SI Round Stable
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      3.7
-// @description  Multi-SI GE auto-add assistant: stable Next/Proceed clicking, keep GE index when switching SI.
+// @version      3.8
+// @description  Multi-SI GE auto-add assistant: switch SI only when page shows GE exceed-5 warning; faster no-Proceed skip.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -13,9 +13,15 @@
     'use strict';
 
     const PENDING_LIST_URL = "https://susy.mdpi.com/special_issue_pending/list?page_limit=100&sort_field=special_issue_pending.date_update&sort=DESC";
-    const MAX_PROCEED_PER_SI_PER_ROUND = 5;
+    // Do NOT switch SI by local Proceed count anymore.
+    // The script now switches SI only when the page displays the official full-warning text after clicking Next.
+    const FULL_WARNING_TEXT = "The number of proposed GE cannot exceed 5 at most in each special issue.";
     const UNLOCK_DAYS = 90;
-    const NO_PROCEED_TIMEOUT_TICKS = 40;
+
+    // Faster skip when Next was clicked but Proceed does not appear.
+    // 28 × 200 ms ≈ 5.6 s. Increase this if the MDPI page is slow.
+    const NO_PROCEED_TIMEOUT_TICKS = 28;
+    const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
     const LS_GE_POOL = "mdpi_ge_pool_v37";
     const LS_SI_QUEUE = "mdpi_si_queue_v37";
@@ -94,7 +100,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；Next / Proceed 使用稳定点击方式；每个邮箱本轮只处理一次；每个 SI 最多 Proceed 5 次；换 SI 后继续后续邮箱。
+                    默认自动 Proceed；Next / Proceed 使用稳定点击方式；每个邮箱本轮只处理一次；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；Next 后无 Proceed 会更快跳过。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -250,7 +256,7 @@
             `SI queue: ${siQueue.length}`,
             `Current SI index: ${siIndex + 1}/${siQueue.length}`,
             `Current GE index: ${geIndex + 1}/${pool.length}`,
-            `Current SI Proceed count this round: ${currentSICount}/${MAX_PROCEED_PER_SI_PER_ROUND}`,
+            `Current SI Proceed count this round: ${currentSICount} (info only; switch by page warning)`,
             `Used emails this round: ${usedEmails.length}`,
             `Proceed clicked: ${clicked}`,
             `SI full hits: ${full}`,
@@ -468,7 +474,6 @@
 
         const pool = getJSON(LS_GE_POOL, []);
         const siQueue = getJSON(LS_SI_QUEUE, []);
-        const counts = getJSON(LS_SI_COUNTS, {});
         const results = getJSON(LS_RESULTS, {});
         const usedEmails = getJSON(LS_USED_EMAILS, []);
 
@@ -477,15 +482,11 @@
 
         while (siIndex < siQueue.length) {
             const si = siQueue[siIndex];
-            const count = counts[si.id] || 0;
 
-            if (count >= MAX_PROCEED_PER_SI_PER_ROUND) {
-                log(`SI ${si.id} reached ${MAX_PROCEED_PER_SI_PER_ROUND}. Moving to next SI.`);
-                siIndex++;
-                localStorage.setItem(LS_SI_INDEX, String(siIndex));
-                continue;
-            }
-
+            // Important:
+            // Do not move to the next SI just because the local Proceed count reaches 5.
+            // The real source of truth is the MDPI page warning after clicking Next:
+            // "The number of proposed GE cannot exceed 5 at most in each special issue."
             while (geIndex < pool.length) {
                 const ge = pool[geIndex];
                 geIndex++;
@@ -659,11 +660,7 @@
 
             const lower = (document.body.innerText || "").toLowerCase();
 
-            if (
-                lower.includes("number of proposed ge cannot exceed 5") ||
-                lower.includes("cannot exceed 5 at most in each special issue") ||
-                lower.includes("proposed ge cannot exceed 5")
-            ) {
+            if (hasSIFullWarning(lower)) {
                 clearInterval(timer);
 
                 markSIFull(siId);
@@ -717,12 +714,22 @@
 
                 setTimeout(dispatchNext, 800);
             }
-        }, 250);
+        }, NO_PROCEED_CHECK_INTERVAL_MS);
+    }
+
+    function hasSIFullWarning(lowerText) {
+        const lower = String(lowerText || "").toLowerCase();
+        const warning = FULL_WARNING_TEXT.toLowerCase();
+
+        return lower.includes(warning) ||
+            lower.includes("number of proposed ge cannot exceed 5") ||
+            lower.includes("cannot exceed 5 at most in each special issue") ||
+            lower.includes("proposed ge cannot exceed 5");
     }
 
     function markSIFull(siId) {
         const counts = getJSON(LS_SI_COUNTS, {});
-        counts[siId] = MAX_PROCEED_PER_SI_PER_ROUND;
+        counts[siId] = Math.max(counts[siId] || 0, 5);
         localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
     }
 
@@ -736,7 +743,7 @@
         const counts = getJSON(LS_SI_COUNTS, {});
         counts[siId] = (counts[siId] || 0) + 1;
         localStorage.setItem(LS_SI_COUNTS, JSON.stringify(counts));
-        log(`SI ${siId} Proceed count: ${counts[siId]}/${MAX_PROCEED_PER_SI_PER_ROUND}`);
+        log(`SI ${siId} Proceed count: ${counts[siId]} (info only; switch by page warning)`);
     }
 
     function record(siId, email, data) {
