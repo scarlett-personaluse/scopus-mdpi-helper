@@ -1,14 +1,17 @@
 // ==UserScript==
-// @author       Jiali Tang
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
 // @name         Processes SI Title Matcher
-// @namespace    http://tampermonkey.net/
-// @version      3.0
+// @namespace    Processes-SI-Title-Matcher
+// @version      3.4
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
+// @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      api.deepseek.com
 // @connect      gist.githubusercontent.com
 // ==/UserScript==
@@ -16,15 +19,65 @@
 (function () {
     'use strict';
 
-    const API_KEY = "sk-8dbca9ef364048099dd593b9438e2511";
     const MODEL = "deepseek-chat";
 
-    const SI_LIST_URL = "https://gist.githubusercontent.com/scarlett-personaluse/53c0316fb23a0fd021e753f5192a4e5f/raw/e9b3f5bd8b754899ab5507ee6f956a7505b71ce2/SI%2520list-scarlett";
+    const API_KEY_STORAGE = "processes_deepseek_api_key";
+    const API_KEY_TIME_STORAGE = "processes_deepseek_api_key_time";
+    const API_KEY_VALID_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+    const SI_LIST_URL =
+        "https://gist.githubusercontent.com/scarlett-personaluse/53c0316fb23a0fd021e753f5192a4e5f/raw/e9b3f5bd8b754899ab5507ee6f956a7505b71ce2/SI%2520list-scarlett";
 
     const STORAGE_KEY = "processes_existing_si_titles_cache";
     const CACHE_TIME_KEY = "processes_existing_si_titles_cache_time";
+    const SI_HASH_KEY = "processes_existing_si_titles_hash";
+
+    GM_registerMenuCommand("Set / Reset DeepSeek API Key", () => {
+        const newKey = prompt("Please enter your DeepSeek API Key:");
+        if (!newKey) return;
+
+        GM_setValue(API_KEY_STORAGE, newKey.trim());
+        GM_setValue(API_KEY_TIME_STORAGE, String(Date.now()));
+
+        alert("DeepSeek API Key saved for 7 days in this browser.");
+    });
+
+    GM_registerMenuCommand("Refresh Processes SI List", () => {
+        refreshSIList();
+    });
+
+    GM_registerMenuCommand("Check Processes SI List Updates", () => {
+        checkSIListUpdates();
+    });
 
     createUI();
+
+    function getApiKey() {
+        let apiKey = GM_getValue(API_KEY_STORAGE, "");
+        let apiKeyTime = Number(GM_getValue(API_KEY_TIME_STORAGE, "0"));
+        let now = Date.now();
+
+        if (apiKey && apiKeyTime && now - apiKeyTime < API_KEY_VALID_MS) {
+            return apiKey.trim();
+        }
+
+        if (apiKey && apiKeyTime && now - apiKeyTime >= API_KEY_VALID_MS) {
+            GM_setValue(API_KEY_STORAGE, "");
+            GM_setValue(API_KEY_TIME_STORAGE, "0");
+        }
+
+        apiKey = prompt("Please enter your DeepSeek API Key:");
+
+        if (!apiKey) {
+            alert("DeepSeek API Key is required to use this function.");
+            return null;
+        }
+
+        GM_setValue(API_KEY_STORAGE, apiKey.trim());
+        GM_setValue(API_KEY_TIME_STORAGE, String(Date.now()));
+
+        return apiKey.trim();
+    }
 
     function createUI() {
         const miniBtn = document.createElement("button");
@@ -52,7 +105,7 @@
             position: "fixed",
             right: "18px",
             bottom: "18px",
-            width: "340px",
+            width: "360px",
             zIndex: "999999",
             background: "#ffffff",
             border: "1px solid #ccc",
@@ -64,23 +117,23 @@
         });
 
         panel.innerHTML = `
-            <div style="background:#1677ff;color:white;padding:10px 12px;font-weight:bold;display:flex;justify-content:space-between;align-items:center;">
+            <div style="background:#1677ff;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
                 <span>Processes SI Matcher</span>
-                <button id="si-minimize" style="background:white;color:#1677ff;border:none;border-radius:6px;padding:2px 8px;cursor:pointer;">−</button>
+                <button id="si-minimize" style="border:none;background:white;color:#1677ff;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
             </div>
 
-            <div style="padding:10px;">
+            <div style="padding:12px;">
                 <button id="si-match-btn" class="si-btn">Match / Generate SI</button>
                 <button id="refresh-si-list-btn" class="si-btn">Refresh SI List</button>
+                <button id="check-si-update-btn" class="si-btn">Check SI List Updates</button>
                 <button id="copy-si-output-btn" class="si-btn">Copy Result</button>
+                <button id="reset-api-key-btn" class="si-btn">Set / Reset API Key</button>
 
-                <div id="si-status" style="font-size:12px;color:#666;margin:6px 0;">
+                <div id="si-status" style="margin:8px 0;font-size:12px;color:#666;">
                     SI list: checking...
                 </div>
 
-                <textarea id="si-output"
-                    placeholder="Select scholar publications/research interests first, then click Match / Generate SI."
-                    style="width:100%;height:240px;margin-top:6px;padding:8px;font-size:12px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;"></textarea>
+                <textarea id="si-output" style="width:100%;height:260px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;resize:vertical;"></textarea>
             </div>
         `;
 
@@ -119,22 +172,36 @@
         };
 
         document.getElementById("refresh-si-list-btn").onclick = refreshSIList;
+        document.getElementById("check-si-update-btn").onclick = checkSIListUpdates;
         document.getElementById("si-match-btn").onclick = matchSI;
         document.getElementById("copy-si-output-btn").onclick = copyOutput;
+
+        document.getElementById("reset-api-key-btn").onclick = () => {
+            const newKey = prompt("Please enter your DeepSeek API Key:");
+            if (!newKey) return;
+
+            GM_setValue(API_KEY_STORAGE, newKey.trim());
+            GM_setValue(API_KEY_TIME_STORAGE, String(Date.now()));
+
+            alert("DeepSeek API Key saved for 7 days in this browser.");
+        };
 
         updateStatus();
     }
 
     function updateStatus() {
-        const cached = localStorage.getItem(STORAGE_KEY);
-        const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
+        const cached = GM_getValue(STORAGE_KEY, "");
+        const cacheTime = GM_getValue(CACHE_TIME_KEY, "");
         const status = document.getElementById("si-status");
 
         if (!status) return;
 
         if (cached) {
             const count = cached.split(/\n+/).filter(x => x.trim()).length;
-            const time = cacheTime ? new Date(Number(cacheTime)).toLocaleString() : "unknown time";
+            const time = cacheTime
+                ? new Date(Number(cacheTime)).toLocaleString()
+                : "unknown time";
+
             status.textContent = `SI list: ${count} titles cached, updated at ${time}`;
         } else {
             status.textContent = "SI list: not loaded. Click Refresh SI List once.";
@@ -143,7 +210,9 @@
 
     function refreshSIList() {
         const outputBox = document.getElementById("si-output");
-        outputBox.value = "Fetching SI list from Gist...";
+        if (outputBox) {
+            outputBox.value = "Fetching SI list from Gist...";
+        }
 
         GM_xmlhttpRequest({
             method: "GET",
@@ -153,20 +222,112 @@
                 const titles = extractSITitles(text);
 
                 if (!titles || titles.length < 5) {
-                    outputBox.value =
-                        "Failed to extract SI titles from the Gist link.\n\nPlease check whether the Gist raw link is accessible and contains one SI title per line.";
+                    if (outputBox) {
+                        outputBox.value =
+                            "Failed to extract SI titles from the Gist link.\n\nPlease check whether the Gist raw link is accessible and contains one SI title per line.";
+                    } else {
+                        alert("Failed to extract SI titles from the Gist link.");
+                    }
                     return;
                 }
 
                 const cleanList = [...new Set(titles)].join("\n");
-                localStorage.setItem(STORAGE_KEY, cleanList);
-                localStorage.setItem(CACHE_TIME_KEY, String(Date.now()));
+                const hash = simpleHash(cleanList);
 
-                outputBox.value = `SI list updated successfully.\n\nLoaded ${titles.length} titles.`;
+                GM_setValue(STORAGE_KEY, cleanList);
+                GM_setValue(CACHE_TIME_KEY, String(Date.now()));
+                GM_setValue(SI_HASH_KEY, hash);
+
+                if (outputBox) {
+                    outputBox.value = `SI list updated successfully.\n\nLoaded ${titles.length} titles.`;
+                } else {
+                    alert(`SI list updated successfully. Loaded ${titles.length} titles.`);
+                }
+
                 updateStatus();
             },
             onerror: function () {
-                outputBox.value = "Failed to fetch SI list. Please check the Gist link or network.";
+                if (outputBox) {
+                    outputBox.value = "Failed to fetch SI list. Please check the Gist link or network.";
+                } else {
+                    alert("Failed to fetch SI list. Please check the Gist link or network.");
+                }
+            }
+        });
+    }
+
+    function checkSIListUpdates() {
+        const outputBox = document.getElementById("si-output");
+        if (outputBox) {
+            outputBox.value = "Checking whether SI list has updates...";
+        }
+
+        GM_xmlhttpRequest({
+            method: "GET",
+            url: SI_LIST_URL,
+            onload: function (response) {
+                const text = response.responseText || "";
+                const titles = extractSITitles(text);
+
+                if (!titles || titles.length < 5) {
+                    if (outputBox) {
+                        outputBox.value =
+                            "Failed to check SI list updates.\n\nPlease check whether the Gist raw link is accessible and contains one SI title per line.";
+                    } else {
+                        alert("Failed to check SI list updates.");
+                    }
+                    return;
+                }
+
+                const cleanList = [...new Set(titles)].join("\n");
+                const newHash = simpleHash(cleanList);
+                const oldHash = GM_getValue(SI_HASH_KEY, "");
+                const oldList = GM_getValue(STORAGE_KEY, "");
+
+                if (!oldList) {
+                    GM_setValue(STORAGE_KEY, cleanList);
+                    GM_setValue(CACHE_TIME_KEY, String(Date.now()));
+                    GM_setValue(SI_HASH_KEY, newHash);
+
+                    if (outputBox) {
+                        outputBox.value = `No previous SI list cache found.\n\nSI list has been loaded successfully.\nLoaded ${titles.length} titles.`;
+                    } else {
+                        alert(`No previous SI list cache found. Loaded ${titles.length} titles.`);
+                    }
+
+                    updateStatus();
+                    return;
+                }
+
+                if (newHash === oldHash) {
+                    if (outputBox) {
+                        outputBox.value = "No update detected. The cached SI list is still up to date.";
+                    } else {
+                        alert("No update detected. The cached SI list is still up to date.");
+                    }
+
+                    updateStatus();
+                    return;
+                }
+
+                GM_setValue(STORAGE_KEY, cleanList);
+                GM_setValue(CACHE_TIME_KEY, String(Date.now()));
+                GM_setValue(SI_HASH_KEY, newHash);
+
+                if (outputBox) {
+                    outputBox.value = `SI list update detected and refreshed successfully.\n\nLoaded ${titles.length} titles.`;
+                } else {
+                    alert(`SI list update detected and refreshed successfully. Loaded ${titles.length} titles.`);
+                }
+
+                updateStatus();
+            },
+            onerror: function () {
+                if (outputBox) {
+                    outputBox.value = "Failed to check SI list updates. Please check the Gist link or network.";
+                } else {
+                    alert("Failed to check SI list updates. Please check the Gist link or network.");
+                }
             }
         });
     }
@@ -179,6 +340,19 @@
             .filter(x => !/^SI Title$/i.test(x));
     }
 
+    function simpleHash(text) {
+        let hash = 0;
+
+        if (!text) return String(hash);
+
+        for (let i = 0; i < text.length; i++) {
+            hash = ((hash << 5) - hash) + text.charCodeAt(i);
+            hash |= 0;
+        }
+
+        return String(hash);
+    }
+
     function matchSI() {
         const selectedText = window.getSelection().toString().trim();
         const outputBox = document.getElementById("si-output");
@@ -188,12 +362,16 @@
             return;
         }
 
-        const existingSI = localStorage.getItem(STORAGE_KEY);
+        const existingSI = GM_getValue(STORAGE_KEY, "");
 
         if (!existingSI) {
             alert("Please click Refresh SI List once before first use.");
             return;
         }
+
+        const apiKey = getApiKey();
+
+        if (!apiKey) return;
 
         outputBox.value = "Analyzing...";
 
@@ -245,6 +423,7 @@ Output format:
 If match ≥80%, stop here.
 
 4. 推荐特刊题目（最多3个）
+
 特刊题目1
 英文：
 中文：
@@ -261,22 +440,28 @@ Scholar information selected by the user:
 ${selectedText}
 `;
 
-        callDeepSeek(systemPrompt, userPrompt, outputBox);
+        callDeepSeek(systemPrompt, userPrompt, outputBox, apiKey);
     }
 
-    function callDeepSeek(systemPrompt, userPrompt, outputBox) {
+    function callDeepSeek(systemPrompt, userPrompt, outputBox, apiKey) {
         GM_xmlhttpRequest({
             method: "POST",
             url: "https://api.deepseek.com/v1/chat/completions",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": "Bearer " + API_KEY
+                "Authorization": "Bearer " + apiKey
             },
             data: JSON.stringify({
                 model: MODEL,
                 messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userPrompt }
+                    {
+                        role: "system",
+                        content: systemPrompt
+                    },
+                    {
+                        role: "user",
+                        content: userPrompt
+                    }
                 ],
                 temperature: 0.25,
                 max_tokens: 1200,
@@ -291,10 +476,15 @@ ${selectedText}
                         return;
                     }
 
-                    const result = data.choices[0].message.content.trim();
+                    const result = data.choices?.[0]?.message?.content?.trim();
+
+                    if (!result) {
+                        outputBox.value = "No valid response returned from API.";
+                        return;
+                    }
+
                     outputBox.value = result;
                     GM_setClipboard(result);
-
                 } catch (error) {
                     outputBox.value = "Failed to parse API response. Please check console.";
                     console.error(response.responseText);
@@ -309,7 +499,11 @@ ${selectedText}
 
     function copyOutput() {
         const text = document.getElementById("si-output").value.trim();
-        if (text) GM_setClipboard(text);
+
+        if (text) {
+            GM_setClipboard(text);
+            alert("Result copied.");
+        }
     }
 
 })();
