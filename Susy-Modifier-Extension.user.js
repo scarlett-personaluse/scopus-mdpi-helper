@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name          Susy Modifier Extension
 // @version       1.1
-// @icon64        iVBORw0KGgoAAAANSUhEUgAAAP0AAADuCAIAAAB9FZaeAAAQAElEQVR4AexdB5wURdavmtm8bGCXvOS45JxVgkgUBTGAgBhOOXO6U8/zvODp6d2nnunMkkSQqGBAMYCSc1pyECTD5hxm+vtXV3dPdZrpTbC7zvz+U/3qpap69bqmpnpYXFLwFYzAby8CLhJ8BSPw24tAMO9/e3MeHDEhwbwPZsFvMQLBvP8tznpwzMG8d5YDQa2aFYFg3tes+QyOxlkEgnnvLE5BrZoVgWDe16z5DI7GWQSCee8sTkGtmhWBYN7XrPm83KOpLu0H8766zFSwnxUZgWDeV2Q0g76qSwSCeV9dZirYz4qMQDDvKzKaQV/VJQLBvK8uMxXsZ0VG4HLnfUWOJegrGAGnEQjmvdNIBfVqUgSCeV+TZjM4FqcRCOa900gF9WpSBIJ5X5NmMzgWpxEI5r3TSF1evWDrFRuBYN5XbDyD3qpHBIJ5Xz3mKdjLio1AMO8rNp5Bb9UjAsG8rx7zFOxlxUYgmPcVG8+gt8sbAaetB/
+// @icon          iVBORw0KGgoAAAANSUhEUgAAAP0AAADuCAIAAAB9FZaeAAAQAElEQVR4AexdB5wURdavmtm8bGCXvOS45JxVgkgUBTGAgBhOOXO6U8/zvODp6d2nnunMkkSQqGBAMYCSc1pyECTD5hxm+vtXV3dPdZrpTbC7zvz+U/3qpap69bqmpnpYXFLwFYzAby8CLhJ8BSPw24tAMO9/e3MeHDEhwbwPZsFvMQLBvP8tznpwzMG8d5YDQa2aFYFg3tes+QyOxlkEgnnvLE5BrZoVgWDe16z5DI7GWQSCee8sTkGtmhWBYN7XrPm83KOpLu0H8766zFSwnxUZgWDeV2Q0g76qSwSCeV9dZirYz4qMQDDvKzKaQV/VJQLBvK8uMxXsZ0VG4HLnfUWOJegrGAGnEQjmvdNIBfVqUgSCeV+TZjM4FqcRCOa900gF9WpSBIJ5X5NmMzgWpxEI5r3TSF1evWDrFRuBYN5XbDyD3qpHBIJ5Xz3mKdjLio1AMO8rNp5Bb9UjAsG8rx7zFOxlxUYgmPcVG8+gt8sbAaetB/
 // @namespace     https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @description   Susy Modifier modified from SKDAY: add expanded GE quick reminder options and force GE quick invitation to use the Optional template.
 // @author        Jiali Tang, modified from SKDAY
 // @contributor   SKDAY
 // @homepageURL   https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @supportURL    https://github.com/scarlett-personaluse/scopus-mdpi-helper/issues
-// @icon64        https://susy.mdpi.com/build/img/design/susy-logo.png
 // @downloadURL   https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Susy-Modifier-Extension.user.js
 // @updateURL     https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Susy-Modifier-Extension.user.js
 // @match         *://*.mdpi.com/*
