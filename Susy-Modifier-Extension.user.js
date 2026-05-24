@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name          Susy Modifier Extension
 // @version       1.1
-// @icon          https://github.com/scarlett-personaluse/scopus-mdpi-helper/blob/main/susy%20extension.png
+// @icon          https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/blob/main/susy%20extension.png
 // @namespace     https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @description   Susy Modifier modified from SKDAY: add expanded GE quick reminder options and force GE quick invitation to use the Optional template.
 // @author        Jiali Tang, modified from SKDAY
