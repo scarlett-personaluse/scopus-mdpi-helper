@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      3.5
+// @version      3.6
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
