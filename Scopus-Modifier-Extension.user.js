@@ -2,6 +2,7 @@
 // @name         Scopus Modifier Extension
 // @namespace    http://tampermonkey.net/
 // @version      5.8
+// @icon64       https://cdn.elsevier.io/verona/includes/favicons/favicon-96x96.png
 // @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
 // @author       Jiali Tang, modified from SKDAY
 // @contributor  liqi0601 (Original Author)
