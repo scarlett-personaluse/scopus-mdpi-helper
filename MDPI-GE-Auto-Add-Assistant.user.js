@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         MDPI GE Auto-Add Assistant Multi-SI Round Stable
+// @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
 // @version      4.0
