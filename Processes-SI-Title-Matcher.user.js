@@ -5,8 +5,8 @@
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/processes-si-title-matcher.user.js
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
 // @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
