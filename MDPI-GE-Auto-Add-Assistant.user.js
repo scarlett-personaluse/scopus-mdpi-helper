@@ -2,7 +2,7 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      4.0
+// @version      1.0
 // @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; faster no-Proceed skip.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
