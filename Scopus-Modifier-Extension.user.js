@@ -3,7 +3,8 @@
 // @namespace    http://tampermonkey.net/
 // @version      5.8
 // @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
-// @author       Jiali Tang
+// @author       Jiali Tang Modify from liqi0601
+// @contributor  liqi0601 (Original Author)
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
 // @match        https://susy.mdpi.com/special_issue/process/1877901*
