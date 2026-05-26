@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      3.6
+// @version      3.6.1
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
 // @match        *://*/*
@@ -27,8 +27,7 @@
     const API_KEY_VALID_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
     const SI_LIST_URL =
-        "https://gist.githubusercontent.com/scarlett-personaluse/53c0316fb23a0fd021e753f5192a4e5f/raw/e9b3f5bd8b754899ab5507ee6f956a7505b71ce2/SI%2520list-scarlett";
-
+          "https://gist.githubusercontent.com/scarlett-personaluse/53c0316fb23a0fd021e753f5192a4e5f/raw/SI%20list-scarlett";
     const STORAGE_KEY = "processes_existing_si_titles_cache";
     const CACHE_TIME_KEY = "processes_existing_si_titles_cache_time";
     const SI_HASH_KEY = "processes_existing_si_titles_hash";
