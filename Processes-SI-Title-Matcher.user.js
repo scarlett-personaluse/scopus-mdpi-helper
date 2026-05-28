@@ -1,10 +1,30 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      3.8
+// @version      3.9
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
+// @match        *://*/*
+// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
+// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
+// @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setClipboard
+// @grant        GM_registerMenuCommand
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      api.deepseek.com
+// @connect      gist.githubusercontent.com
+// ==/UserScript==
+
+// ==UserScript==
+// @name         Processes SI Title Matcher
+// @namespace    Processes-SI-Title-Matcher
+// @version      3.9
+// @author       Jiali Tang
+// @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
+// @description  Match selected scholar information with existing Processes SI titles, generate new SI titles, or generate Scilit search queries and keyword lists
 // @match        *://*/*
 // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
 // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
@@ -87,7 +107,8 @@
         Object.assign(miniBtn.style, {
             position: "fixed",
             right: "18px",
-            bottom: "18px",
+            top: "50%",
+            transform: "translateY(-50%)",
             zIndex: "999999",
             padding: "10px 14px",
             border: "none",
@@ -105,8 +126,9 @@
         Object.assign(panel.style, {
             position: "fixed",
             right: "18px",
-            bottom: "18px",
-            width: "360px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: "380px",
             zIndex: "999999",
             background: "#ffffff",
             border: "1px solid #ccc",
@@ -118,13 +140,14 @@
         });
 
         panel.innerHTML = `
-            <div style="background:#1677ff;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+            <div id="si-panel-drag-handle" style="background:#1677ff;color:white;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:move;">
                 <span>Processes SI Matcher</span>
                 <button id="si-minimize" style="border:none;background:white;color:#1677ff;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
             </div>
 
             <div style="padding:12px;">
                 <button id="si-match-btn" class="si-btn">Match / Generate SI</button>
+                <button id="si-search-keyword-btn" class="si-btn">Generate Scilit Query + Keywords</button>
                 <button id="refresh-si-list-btn" class="si-btn">Refresh SI List</button>
                 <button id="check-si-update-btn" class="si-btn">Check SI List Updates</button>
                 <button id="copy-si-output-btn" class="si-btn">Copy Result</button>
@@ -134,7 +157,7 @@
                     SI list: checking...
                 </div>
 
-                <textarea id="si-output" style="width:100%;height:260px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;resize:vertical;"></textarea>
+                <textarea id="si-output" style="width:100%;height:300px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;resize:vertical;box-sizing:border-box;"></textarea>
             </div>
         `;
 
@@ -175,6 +198,7 @@
         document.getElementById("refresh-si-list-btn").onclick = refreshSIList;
         document.getElementById("check-si-update-btn").onclick = checkSIListUpdates;
         document.getElementById("si-match-btn").onclick = matchSI;
+        document.getElementById("si-search-keyword-btn").onclick = generateSearchQueryAndKeywords;
         document.getElementById("copy-si-output-btn").onclick = copyOutput;
 
         document.getElementById("reset-api-key-btn").onclick = () => {
@@ -187,7 +211,61 @@
             alert("DeepSeek API Key saved for 7 days in this browser.");
         };
 
+        makeDraggable(panel, document.getElementById("si-panel-drag-handle"));
+
         updateStatus();
+    }
+
+    function makeDraggable(box, handle) {
+        let isDragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (!box || !handle) return;
+
+        handle.addEventListener("mousedown", function (e) {
+            if (e.target.tagName.toLowerCase() === "button") return;
+
+            isDragging = true;
+
+            const rect = box.getBoundingClientRect();
+
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+
+            box.style.left = rect.left + "px";
+            box.style.top = rect.top + "px";
+            box.style.right = "auto";
+            box.style.bottom = "auto";
+            box.style.transform = "none";
+
+            document.body.style.userSelect = "none";
+            e.preventDefault();
+        });
+
+        document.addEventListener("mousemove", function (e) {
+            if (!isDragging) return;
+
+            let newLeft = e.clientX - offsetX;
+            let newTop = e.clientY - offsetY;
+
+            const boxRect = box.getBoundingClientRect();
+            const maxLeft = window.innerWidth - boxRect.width;
+            const maxTop = window.innerHeight - 40;
+
+            newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+            newTop = Math.max(0, Math.min(newTop, maxTop));
+
+            box.style.left = newLeft + "px";
+            box.style.top = newTop + "px";
+        });
+
+        document.addEventListener("mouseup", function () {
+            if (!isDragging) return;
+
+            isDragging = false;
+            document.body.style.userSelect = "";
+        });
     }
 
     function updateStatus() {
@@ -444,6 +522,76 @@ ${selectedText}
         callDeepSeek(systemPrompt, userPrompt, outputBox, apiKey);
     }
 
+    function generateSearchQueryAndKeywords() {
+        const selectedText = window.getSelection().toString().trim();
+        const outputBox = document.getElementById("si-output");
+
+        if (!selectedText) {
+            alert("Please select the Special Issue title, summary, keywords, GE interests, or scope text first.");
+            return;
+        }
+
+        const apiKey = getApiKey();
+
+        if (!apiKey) return;
+
+        outputBox.value = "Generating Scilit search query and keyword list...";
+
+        const systemPrompt = `
+You are an expert assistant for academic literature searching, Special Issue topic analysis, and potential author discovery.
+
+Your task is to help the user convert selected Special Issue information into:
+1. A Boolean search query for MDPI Scilit or similar academic databases.
+2. A keyword list for rough screening of exported literature records in Excel.
+
+Return only the requested formatted output.
+Do not add explanations.
+`;
+
+        const userPrompt = `
+The following text is selected from a Special Issue webpage. It may include the Special Issue title, guest editor research interests, summary, aims and scope, and keywords.
+
+Your task is to generate two outputs:
+
+1. A Boolean search query for MDPI Scilit or similar academic databases.
+   - The query should be broad enough to retrieve potentially relevant papers and authors.
+   - Use important synonyms and related terms.
+   - Use OR within concept groups.
+   - Use AND between different concept groups.
+   - Avoid overly narrow or too many mandatory terms.
+   - Prefer title/abstract/keyword-friendly phrases.
+   - Keep the query practical and not excessively long.
+   - Do not include field tags unless necessary.
+   - Do not include explanations.
+   - The query should be suitable for identifying papers and potential authors related to this Special Issue.
+   - The query should not be so strict that it misses relevant papers.
+
+2. A keyword list for rough screening of exported literature records in Excel.
+   - Each keyword or phrase must be on a separate line.
+   - Keywords should be directly relevant to the Special Issue.
+   - Include synonyms, variant spellings, abbreviations, and closely related technical terms.
+   - Include both broad topic phrases and specific technical phrases.
+   - Avoid overly generic words such as "study", "method", "process", "system", "analysis", "model", or "performance" unless they are part of a meaningful phrase.
+   - Do not number the keywords.
+   - Do not use bullet points.
+   - Prefer 20–50 keywords depending on the scope of the Special Issue.
+   - The keywords should be suitable for matching against paper titles, author keywords, and abstracts.
+
+Return the result strictly in the following format:
+
+[SCILIT_SEARCH_QUERY]
+...
+
+[KEYWORD_LIST]
+...
+
+Selected Special Issue text:
+${selectedText}
+`;
+
+        callDeepSeek(systemPrompt, userPrompt, outputBox, apiKey);
+    }
+
     function callDeepSeek(systemPrompt, userPrompt, outputBox, apiKey) {
         GM_xmlhttpRequest({
             method: "POST",
@@ -465,7 +613,7 @@ ${selectedText}
                     }
                 ],
                 temperature: 0.25,
-                max_tokens: 1200,
+                max_tokens: 1800,
                 stream: false
             }),
             onload: function (response) {
