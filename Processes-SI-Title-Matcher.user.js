@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.0
+// @version      4.1
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
@@ -87,7 +87,7 @@
         Object.assign(miniBtn.style, {
             position: "fixed",
             right: "18px",
-            bottom: "76px",
+            bottom: "50px",
             zIndex: "999999",
             padding: "10px 14px",
             border: "none",
@@ -105,7 +105,7 @@
         Object.assign(panel.style, {
             position: "fixed",
             right: "18px",
-            bottom: "76px",
+            bottom: "50px",
             width: "400px",
             maxHeight: "88vh",
             zIndex: "999999",
