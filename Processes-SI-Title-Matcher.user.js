@@ -1,30 +1,10 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      3.9
+// @version      4.0
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
-// @description  Match selected scholar information with existing Processes SI titles or generate new SI titles
-// @match        *://*/*
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
-// @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
-// @grant        GM_xmlhttpRequest
-// @grant        GM_setClipboard
-// @grant        GM_registerMenuCommand
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @connect      api.deepseek.com
-// @connect      gist.githubusercontent.com
-// ==/UserScript==
-
-// ==UserScript==
-// @name         Processes SI Title Matcher
-// @namespace    Processes-SI-Title-Matcher
-// @version      3.9
-// @author       Jiali Tang
-// @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
-// @description  Match selected scholar information with existing Processes SI titles, generate new SI titles, or generate Scilit search queries and keyword lists
+// @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
 // @match        *://*/*
 // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
 // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
@@ -107,15 +87,14 @@
         Object.assign(miniBtn.style, {
             position: "fixed",
             right: "18px",
-            top: "50%",
-            transform: "translateY(-50%)",
+            bottom: "76px",
             zIndex: "999999",
             padding: "10px 14px",
             border: "none",
             borderRadius: "20px",
             background: "#1677ff",
             color: "white",
-            cursor: "pointer",
+            cursor: "move",
             fontSize: "13px",
             fontWeight: "600",
             boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
@@ -126,9 +105,9 @@
         Object.assign(panel.style, {
             position: "fixed",
             right: "18px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: "380px",
+            bottom: "76px",
+            width: "400px",
+            maxHeight: "88vh",
             zIndex: "999999",
             background: "#ffffff",
             border: "1px solid #ccc",
@@ -145,7 +124,7 @@
                 <button id="si-minimize" style="border:none;background:white;color:#1677ff;border-radius:6px;cursor:pointer;font-weight:700;">−</button>
             </div>
 
-            <div style="padding:12px;">
+            <div style="padding:12px;max-height:calc(88vh - 44px);overflow-y:auto;">
                 <button id="si-match-btn" class="si-btn">Match / Generate SI</button>
                 <button id="si-search-keyword-btn" class="si-btn">Generate Scilit Query + Keywords</button>
                 <button id="refresh-si-list-btn" class="si-btn">Refresh SI List</button>
@@ -158,6 +137,19 @@
                 </div>
 
                 <textarea id="si-output" style="width:100%;height:300px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;resize:vertical;box-sizing:border-box;"></textarea>
+
+                <div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee;">
+                    <div style="font-size:13px;font-weight:700;color:#333;margin-bottom:6px;">
+                        Text Cleaner: remove line breaks
+                    </div>
+
+                    <textarea id="si-cleaner-input" placeholder="Paste text here, then click Convert to One Paragraph..." style="width:100%;height:95px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:12px;resize:vertical;box-sizing:border-box;"></textarea>
+
+                    <div style="display:flex;gap:6px;margin-top:6px;">
+                        <button id="convert-cleaner-btn" class="si-small-btn">Convert + Copy</button>
+                        <button id="clear-cleaner-btn" class="si-small-btn">Clear</button>
+                    </div>
+                </div>
             </div>
         `;
 
@@ -181,10 +173,31 @@
             .si-btn:hover {
                 background: #d6e4ff;
             }
+            .si-small-btn {
+                flex: 1;
+                padding: 7px;
+                border: none;
+                border-radius: 8px;
+                background: #f0f5ff;
+                color: #003a8c;
+                cursor: pointer;
+                font-size: 12px;
+            }
+            .si-small-btn:hover {
+                background: #d6e4ff;
+            }
         `;
         document.head.appendChild(style);
 
+        makeDraggable(miniBtn, miniBtn);
+        makeDraggable(panel, document.getElementById("si-panel-drag-handle"));
+
         miniBtn.onclick = () => {
+            if (miniBtn.dataset.dragged === "true") {
+                miniBtn.dataset.dragged = "false";
+                return;
+            }
+
             miniBtn.style.display = "none";
             panel.style.display = "block";
             updateStatus();
@@ -200,6 +213,8 @@
         document.getElementById("si-match-btn").onclick = matchSI;
         document.getElementById("si-search-keyword-btn").onclick = generateSearchQueryAndKeywords;
         document.getElementById("copy-si-output-btn").onclick = copyOutput;
+        document.getElementById("convert-cleaner-btn").onclick = convertCleanerText;
+        document.getElementById("clear-cleaner-btn").onclick = clearCleanerText;
 
         document.getElementById("reset-api-key-btn").onclick = () => {
             const newKey = prompt("Please enter your DeepSeek API Key:");
@@ -211,22 +226,26 @@
             alert("DeepSeek API Key saved for 7 days in this browser.");
         };
 
-        makeDraggable(panel, document.getElementById("si-panel-drag-handle"));
-
         updateStatus();
     }
 
     function makeDraggable(box, handle) {
         let isDragging = false;
+        let moved = false;
         let offsetX = 0;
         let offsetY = 0;
+        let startX = 0;
+        let startY = 0;
 
         if (!box || !handle) return;
 
         handle.addEventListener("mousedown", function (e) {
-            if (e.target.tagName.toLowerCase() === "button") return;
+            if (e.target.tagName.toLowerCase() === "button" && handle !== box) return;
 
             isDragging = true;
+            moved = false;
+            startX = e.clientX;
+            startY = e.clientY;
 
             const rect = box.getBoundingClientRect();
 
@@ -246,12 +265,17 @@
         document.addEventListener("mousemove", function (e) {
             if (!isDragging) return;
 
+            if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) {
+                moved = true;
+                box.dataset.dragged = "true";
+            }
+
             let newLeft = e.clientX - offsetX;
             let newTop = e.clientY - offsetY;
 
             const boxRect = box.getBoundingClientRect();
             const maxLeft = window.innerWidth - boxRect.width;
-            const maxTop = window.innerHeight - 40;
+            const maxTop = window.innerHeight - boxRect.height;
 
             newLeft = Math.max(0, Math.min(newLeft, maxLeft));
             newTop = Math.max(0, Math.min(newTop, maxTop));
@@ -265,6 +289,14 @@
 
             isDragging = false;
             document.body.style.userSelect = "";
+
+            if (!moved) {
+                box.dataset.dragged = "false";
+            } else {
+                setTimeout(() => {
+                    box.dataset.dragged = "false";
+                }, 150);
+            }
         });
     }
 
@@ -543,6 +575,7 @@ You are an expert assistant for academic literature searching, Special Issue top
 Your task is to help the user convert selected Special Issue information into:
 1. A Boolean search query for MDPI Scilit or similar academic databases.
 2. A keyword list for rough screening of exported literature records in Excel.
+3. A semicolon-separated keyword list for Python input.
 
 Return only the requested formatted output.
 Do not add explanations.
@@ -551,7 +584,7 @@ Do not add explanations.
         const userPrompt = `
 The following text is selected from a Special Issue webpage. It may include the Special Issue title, guest editor research interests, summary, aims and scope, and keywords.
 
-Your task is to generate two outputs:
+Your task is to generate three outputs:
 
 1. A Boolean search query for MDPI Scilit or similar academic databases.
    - The query should be broad enough to retrieve potentially relevant papers and authors.
@@ -577,13 +610,24 @@ Your task is to generate two outputs:
    - Prefer 20–50 keywords depending on the scope of the Special Issue.
    - The keywords should be suitable for matching against paper titles, author keywords, and abstracts.
 
+3. A semicolon-separated keyword list.
+   - Use the same keywords from [KEYWORD_LIST].
+   - Put all keywords in one line.
+   - Separate keywords using Chinese semicolon "；".
+   - Do not add line breaks inside this section.
+
 Return the result strictly in the following format:
 
 [SCILIT_SEARCH_QUERY]
 ...
 
 [KEYWORD_LIST]
-...
+keyword 1
+keyword 2
+keyword 3
+
+[KEYWORD_LIST_SEMICOLON]
+keyword 1；keyword 2；keyword 3
 
 Selected Special Issue text:
 ${selectedText}
@@ -613,7 +657,7 @@ ${selectedText}
                     }
                 ],
                 temperature: 0.25,
-                max_tokens: 1800,
+                max_tokens: 2200,
                 stream: false
             }),
             onload: function (response) {
@@ -625,12 +669,14 @@ ${selectedText}
                         return;
                     }
 
-                    const result = data.choices?.[0]?.message?.content?.trim();
+                    let result = data.choices?.[0]?.message?.content?.trim();
 
                     if (!result) {
                         outputBox.value = "No valid response returned from API.";
                         return;
                     }
+
+                    result = ensureSemicolonKeywordSection(result);
 
                     outputBox.value = result;
                     GM_setClipboard(result);
@@ -644,6 +690,80 @@ ${selectedText}
                 console.error(error);
             }
         });
+    }
+
+    function ensureSemicolonKeywordSection(text) {
+        if (!text || !/\[KEYWORD_LIST\]/i.test(text)) {
+            return text;
+        }
+
+        if (/\[KEYWORD_LIST_SEMICOLON\]/i.test(text)) {
+            const parts = text.split(/\[KEYWORD_LIST_SEMICOLON\]/i);
+            const before = parts[0].trim();
+            const after = parts.slice(1).join("[KEYWORD_LIST_SEMICOLON]").trim();
+
+            if (after && !after.includes("\n")) {
+                return text;
+            }
+
+            const keywords = extractKeywordLines(before);
+            if (!keywords.length) return text;
+
+            return before + "\n\n[KEYWORD_LIST_SEMICOLON]\n" + keywords.join("；");
+        }
+
+        const keywords = extractKeywordLines(text);
+        if (!keywords.length) return text;
+
+        return text.trim() + "\n\n[KEYWORD_LIST_SEMICOLON]\n" + keywords.join("；");
+    }
+
+    function extractKeywordLines(text) {
+        const match = text.match(/\[KEYWORD_LIST\]([\s\S]*?)(?:\n\s*\[[A-Z_]+\]|\s*$)/i);
+        if (!match) return [];
+
+        const raw = match[1] || "";
+
+        const keywords = raw
+            .split(/\r?\n/)
+            .map(x => x.trim())
+            .map(x => x.replace(/^[-•*]\s*/, ""))
+            .map(x => x.replace(/^\d+[\.\)]\s*/, ""))
+            .map(x => x.replace(/；/g, ";"))
+            .flatMap(x => x.split(";"))
+            .map(x => x.trim())
+            .filter(x => x.length > 1)
+            .filter(x => !/^\[.*\]$/.test(x));
+
+        return [...new Set(keywords)];
+    }
+
+    function convertCleanerText() {
+        const box = document.getElementById("si-cleaner-input");
+        if (!box) return;
+
+        const raw = box.value || "";
+
+        if (!raw.trim()) {
+            alert("Please paste text into the cleaner box first.");
+            return;
+        }
+
+        const cleaned = raw
+            .replace(/\r?\n+/g, " ")
+            .replace(/\t+/g, " ")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+
+        box.value = cleaned;
+        GM_setClipboard(cleaned);
+
+        alert("Converted to one paragraph and copied.");
+    }
+
+    function clearCleanerText() {
+        const box = document.getElementById("si-cleaner-input");
+        if (box) box.value = "";
     }
 
     function copyOutput() {
