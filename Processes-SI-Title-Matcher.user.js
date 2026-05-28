@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.1
+// @version      4.2
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
