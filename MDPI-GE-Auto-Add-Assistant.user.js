@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.4
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; fast skip if no clickable Proceed; remind user to complete manual verification before Proceed.
+// @version      1.5
+// @description  Multi-SI GE auto-add assistant: no Proceed = fast skip; grey Proceed = remind user to manually verify; green Proceed = auto click.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -21,30 +21,24 @@
 
     // Fast check after clicking Next.
     // 15 × 200 ms = 3 s.
-    // If no clickable Proceed appears within this period, skip this email.
+    // If no Proceed button appears within this period, skip this email.
     const NO_PROCEED_TIMEOUT_TICKS = 15;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
-    // After clickable Proceed is detected, remind user to complete manual verification.
-    // Then wait this many ticks before auto-clicking Proceed.
-    // 20 × 200 ms = 4 s.
-    // Increase if you need more time to finish manual slider verification.
-    const MANUAL_VERIFY_GRACE_TICKS = 20;
-
-    // If clickable Proceed was detected but later becomes unavailable, keep waiting up to this time.
+    // Once grey Proceed is detected, wait for manual verification.
     // 1800 × 200 ms = 360 s = 6 min.
     const PROCEED_WAIT_TIMEOUT_TICKS = 1800;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v41";
-    const LS_SI_QUEUE = "mdpi_si_queue_v41";
-    const LS_RESULTS = "mdpi_ge_results_v41";
-    const LS_RUNNING = "mdpi_ge_running_v41";
-    const LS_LOG = "mdpi_ge_log_v41";
-    const LS_SI_INDEX = "mdpi_si_index_v41";
-    const LS_GE_INDEX = "mdpi_ge_index_v41";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v41";
-    const LS_CURRENT = "mdpi_current_task_v41";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v41";
+    const LS_GE_POOL = "mdpi_ge_pool_v42";
+    const LS_SI_QUEUE = "mdpi_si_queue_v42";
+    const LS_RESULTS = "mdpi_ge_results_v42";
+    const LS_RUNNING = "mdpi_ge_running_v42";
+    const LS_LOG = "mdpi_ge_log_v42";
+    const LS_SI_INDEX = "mdpi_si_index_v42";
+    const LS_GE_INDEX = "mdpi_ge_index_v42";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v42";
+    const LS_CURRENT = "mdpi_current_task_v42";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v42";
 
     ready(() => {
         createPanel();
@@ -112,7 +106,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；无 Proceed 或灰色 Proceed 会快速跳过；有可用 Proceed 时提醒你手动完成验证。
+                    默认自动填邮箱并点击 Next；无 Proceed 会快速跳过；出现灰色 Proceed 时提醒你手动完成滑动验证；Proceed 变绿后自动点击。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -276,9 +270,7 @@
             `No Proceed skipped: ${noProceed}`,
             `Failed: ${failed}`,
             `Running: ${running ? "Yes" : "No"}`,
-            `SI Status Filter: Pending GE invitation only`,
-            `Fast skip: no clickable Proceed / grey Proceed`,
-            `Manual verification reminder: ON`,
+            `Logic: no Proceed = skip; grey Proceed = wait for manual verification; green Proceed = click`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -690,9 +682,9 @@
 
     function waitForProceedOrSkip(siId, email) {
         let count = 0;
-        let proceedDetected = false;
+        let proceedSeen = false;
         let alerted = false;
-        let waitAfterProceed = 0;
+        let waitAfterProceedSeen = 0;
 
         const timer = setInterval(() => {
             count++;
@@ -721,103 +713,98 @@
 
             const proceedBtn = findButtonByText("proceed");
 
-            // 2. Before clickable Proceed is detected:
-            // no Proceed or grey/disabled Proceed -> fast skip.
-            if (!proceedDetected) {
-                if (!proceedBtn || isDisabledLike(proceedBtn)) {
-                    if (count > NO_PROCEED_TIMEOUT_TICKS) {
-                        clearInterval(timer);
+            // 2. No Proceed button: fast skip.
+            if (!proceedBtn && !proceedSeen) {
+                if (count > NO_PROCEED_TIMEOUT_TICKS) {
+                    clearInterval(timer);
 
-                        hideManualVerifyNotice();
+                    hideManualVerifyNotice();
 
-                        addUsedEmail(email, "No clickable Proceed");
+                    addUsedEmail(email, "No Proceed");
 
-                        record(siId, email, {
-                            status: "NO_PROCEED_SKIP_EMAIL",
-                            eligible: false,
-                            reason: proceedBtn
-                                ? "Proceed button exists but is disabled/grey after fast check"
-                                : "No Proceed button appeared after fast check",
-                            pageUrl: location.href
-                        });
+                    record(siId, email, {
+                        status: "NO_PROCEED_SKIP_EMAIL",
+                        eligible: false,
+                        reason: "No Proceed button appeared after fast check",
+                        pageUrl: location.href
+                    });
 
-                        setTimeout(dispatchNext, 500);
-                    }
-
-                    return;
+                    setTimeout(dispatchNext, 500);
                 }
 
-                // 3. Clickable Proceed appears:
-                // remind user to complete manual verification.
-                proceedDetected = true;
-                waitAfterProceed = 0;
+                return;
+            }
+
+            // 3. Proceed appears, grey or green: ask user to complete manual verification.
+            if (proceedBtn && !proceedSeen) {
+                proceedSeen = true;
+                waitAfterProceedSeen = 0;
 
                 if (!alerted) {
                     alerted = true;
 
-                    log("Clickable Proceed detected. Reminding user to complete manual verification.");
-                    updateStatus("Clickable Proceed detected. Please complete the manual verification now. Proceed will be clicked shortly.");
+                    log("Proceed button detected. Waiting for user to complete manual verification.");
+                    updateStatus("Proceed detected. Please complete manual verification. The script will click Proceed when it becomes available.");
 
                     showManualVerifyNotice();
 
                     setTimeout(() => {
-                        alert("检测到可用 Proceed。请回到网页界面手动完成滑动验证。完成后脚本会自动点击 Proceed。");
+                        alert("检测到 Proceed 按钮。请回到网页界面手动完成滑动验证。验证完成后，Proceed 变绿，脚本会自动点击。");
                     }, 100);
                 }
 
                 return;
             }
 
-            // 4. After Proceed was detected:
-            // give user a short grace period to finish manual verification.
-            waitAfterProceed++;
+            // 4. Proceed was seen: wait until it becomes green/clickable.
+            if (proceedSeen) {
+                waitAfterProceedSeen++;
 
-            const proceedBtnAfter = findButtonByText("proceed");
+                const proceedBtnNow = findButtonByText("proceed");
 
-            if (waitAfterProceed < MANUAL_VERIFY_GRACE_TICKS) {
-                updateStatus(`Clickable Proceed detected. Waiting for manual verification... ${waitAfterProceed}/${MANUAL_VERIFY_GRACE_TICKS}`);
+                if (proceedBtnNow && !isDisabledLike(proceedBtnNow)) {
+                    clearInterval(timer);
+
+                    hideManualVerifyNotice();
+
+                    log(`Click Proceed: SI ${siId}, ${email}`);
+
+                    clickElement(proceedBtnNow);
+
+                    incrementSICount(siId);
+                    addUsedEmail(email, "Proceed clicked");
+
+                    record(siId, email, {
+                        status: "PROCEED_CLICKED",
+                        eligible: true,
+                        reason: "Proceed detected; clicked after manual verification made it available",
+                        pageUrl: location.href
+                    });
+
+                    setTimeout(dispatchNext, 2500);
+                    return;
+                }
+
+                updateStatus("Proceed detected but still grey. Waiting for manual verification to make it green/clickable...");
+
+                if (waitAfterProceedSeen > PROCEED_WAIT_TIMEOUT_TICKS) {
+                    clearInterval(timer);
+
+                    hideManualVerifyNotice();
+
+                    addUsedEmail(email, "Proceed stayed grey timeout");
+
+                    record(siId, email, {
+                        status: "NO_PROCEED_SKIP_EMAIL",
+                        eligible: false,
+                        reason: "Proceed appeared but stayed grey/disabled after waiting",
+                        pageUrl: location.href
+                    });
+
+                    setTimeout(dispatchNext, 800);
+                }
+
                 return;
-            }
-
-            if (proceedBtnAfter && !isDisabledLike(proceedBtnAfter)) {
-                clearInterval(timer);
-
-                hideManualVerifyNotice();
-
-                log(`Click Proceed: SI ${siId}, ${email}`);
-
-                clickElement(proceedBtnAfter);
-
-                incrementSICount(siId);
-                addUsedEmail(email, "Proceed clicked");
-
-                record(siId, email, {
-                    status: "PROCEED_CLICKED",
-                    eligible: true,
-                    reason: "Proceed clicked automatically after manual verification reminder",
-                    pageUrl: location.href
-                });
-
-                setTimeout(dispatchNext, 2500);
-                return;
-            }
-
-            // 5. If Proceed becomes unavailable after being detected, keep waiting for a while.
-            if (waitAfterProceed > PROCEED_WAIT_TIMEOUT_TICKS) {
-                clearInterval(timer);
-
-                hideManualVerifyNotice();
-
-                addUsedEmail(email, "Proceed wait timeout");
-
-                record(siId, email, {
-                    status: "NO_PROCEED_SKIP_EMAIL",
-                    eligible: false,
-                    reason: "Clickable Proceed was detected, but no clickable Proceed remained after waiting",
-                    pageUrl: location.href
-                });
-
-                setTimeout(dispatchNext, 800);
             }
         }, NO_PROCEED_CHECK_INTERVAL_MS);
     }
@@ -852,7 +839,7 @@
                 fontSize: "15px",
                 fontWeight: "700",
                 boxShadow: "0 4px 18px rgba(0,0,0,0.28)",
-                maxWidth: "380px",
+                maxWidth: "400px",
                 lineHeight: "1.5"
             });
 
@@ -860,9 +847,9 @@
         }
 
         box.innerHTML = `
-            ⚠️ 检测到可用 Proceed<br>
+            ⚠️ 检测到 Proceed 按钮<br>
             请回到网页界面手动完成滑动验证。<br>
-            完成后，脚本会自动点击 Proceed。
+            Proceed 变绿后，脚本会自动点击并继续下一个邮箱。
         `;
 
         box.style.display = "block";
@@ -876,25 +863,60 @@
     function isDisabledLike(el) {
         if (!el) return true;
 
-        const disabledAttr = el.disabled ||
+        const disabledAttr =
+            el.disabled ||
             el.getAttribute("disabled") !== null ||
             el.getAttribute("aria-disabled") === "true";
 
         const cls = String(el.className || "").toLowerCase();
 
-        const disabledClass = cls.includes("disabled") ||
+        const disabledClass =
+            cls.includes("disabled") ||
             cls.includes("disable") ||
             cls.includes("btn-disabled") ||
             cls.includes("inactive");
 
         const style = window.getComputedStyle(el);
 
-        const disabledStyle = style.pointerEvents === "none" ||
+        const opacity = Number(style.opacity || "1");
+
+        const disabledStyle =
             style.visibility === "hidden" ||
             style.display === "none" ||
-            Number(style.opacity) < 0.3;
+            style.pointerEvents === "none" ||
+            opacity < 0.35;
 
-        return disabledAttr || disabledClass || disabledStyle;
+        // Grey Proceed in MDPI often has very pale text/background.
+        const color = style.color || "";
+        const bg = style.backgroundColor || "";
+
+        const looksGrey =
+            color.includes("255, 255, 255") && (
+                bg.includes("238") ||
+                bg.includes("240") ||
+                bg.includes("245") ||
+                bg.includes("221") ||
+                bg.includes("rgb(238") ||
+                bg.includes("rgb(240") ||
+                bg.includes("rgb(245") ||
+                bg.includes("rgb(221")
+            );
+
+        return disabledAttr || disabledClass || disabledStyle || looksGrey;
+    }
+
+    function isActuallyVisible(el) {
+        if (!el) return false;
+
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+
+        return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden"
+        );
     }
 
     function markSIFull(siId) {
@@ -962,16 +984,33 @@
     }
 
     function findButtonByText(text) {
-        const target = text.toLowerCase();
+        const target = String(text || "").trim().toLowerCase();
 
-        const candidates = Array.from(
-            document.querySelectorAll("button, input[type='button'], input[type='submit'], a")
-        ).filter(el => el.offsetParent !== null);
+        const candidates = Array.from(document.querySelectorAll(
+            "button, input[type='button'], input[type='submit'], a, div, span"
+        )).filter(el => isActuallyVisible(el));
 
-        return candidates.find(el => {
-            const t = (el.innerText || el.value || "").trim().toLowerCase();
-            return t === target;
+        const matched = candidates.filter(el => {
+            const parts = [
+                el.innerText,
+                el.textContent,
+                el.value,
+                el.getAttribute("title"),
+                el.getAttribute("aria-label"),
+                el.getAttribute("data-original-title")
+            ];
+
+            const label = parts
+                .map(x => String(x || "").replace(/\s+/g, " ").trim().toLowerCase())
+                .filter(Boolean)
+                .join(" ");
+
+            return label === target || label.includes(target);
         });
+
+        return matched.find(el =>
+            ["BUTTON", "A", "INPUT"].includes(el.tagName)
+        ) || matched[0] || null;
     }
 
     function clickElement(el) {
