@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.1
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; detect manual drag verification and continue after user completes it.
+// @version      1.2
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual Please-drag verification and continue after Proceed appears.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -15,30 +15,29 @@
 
     const PENDING_LIST_URL = "https://susy.mdpi.com/special_issue_pending/list?page_limit=100&sort_field=special_issue_pending.date_update&sort=DESC";
 
-    // Only switch SI when this warning appears after clicking Next.
     const FULL_WARNING_TEXT = "The number of proposed GE cannot exceed 5 at most in each special issue.";
 
     const UNLOCK_DAYS = 90;
 
-    // Faster skip when Next was clicked but Proceed does not appear.
-    // 28 × 200 ms ≈ 5.6 s. If the MDPI page is slow, increase this number.
-    const NO_PROCEED_TIMEOUT_TICKS = 28;
+    // 原来 5.6 秒太短，容易在 Please drag 还没加载出来时直接跳过。
+    // 150 × 200 ms = 30 s.
+    const NO_PROCEED_TIMEOUT_TICKS = 150;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
-    // Manual human verification waiting time.
-    // 300 × 200 ms = 60 s. Increase this number if you need more time to drag manually.
-    const DRAG_MANUAL_TIMEOUT_TICKS = 300;
+    // 检测到 Please drag 后，不再普通跳过，而是长时间等待你手动拖动。
+    // 1800 × 200 ms = 360 s = 6 min.
+    const DRAG_MANUAL_TIMEOUT_TICKS = 1800;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v38";
-    const LS_SI_QUEUE = "mdpi_si_queue_v38";
-    const LS_RESULTS = "mdpi_ge_results_v38";
-    const LS_RUNNING = "mdpi_ge_running_v38";
-    const LS_LOG = "mdpi_ge_log_v38";
-    const LS_SI_INDEX = "mdpi_si_index_v38";
-    const LS_GE_INDEX = "mdpi_ge_index_v38";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v38";
-    const LS_CURRENT = "mdpi_current_task_v38";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v38";
+    const LS_GE_POOL = "mdpi_ge_pool_v39";
+    const LS_SI_QUEUE = "mdpi_si_queue_v39";
+    const LS_RESULTS = "mdpi_ge_results_v39";
+    const LS_RUNNING = "mdpi_ge_running_v39";
+    const LS_LOG = "mdpi_ge_log_v39";
+    const LS_SI_INDEX = "mdpi_si_index_v39";
+    const LS_GE_INDEX = "mdpi_ge_index_v39";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v39";
+    const LS_CURRENT = "mdpi_current_task_v39";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v39";
 
     ready(() => {
         createPanel();
@@ -106,7 +105,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现 Please drag，会暂停等待你手动拖动，完成后继续自动 Proceed。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现 Please drag，会弹窗提醒你手动拖动，完成后继续自动 Proceed。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -198,6 +197,7 @@
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 stopRun("Stopped by Esc.");
+                hideManualDragNotice();
                 alert("GE Assistant stopped.");
             }
         });
@@ -271,7 +271,7 @@
             `Running: ${running ? "Yes" : "No"}`,
             `SI Status Filter: Pending GE invitation only`,
             `Auto Proceed: ON`,
-            `Manual Please-drag handling: pause and wait for user`,
+            `Please-drag mode: popup + manual drag + wait for Proceed`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -490,6 +490,7 @@
         localStorage.setItem(LS_RUNNING, "0");
         localStorage.removeItem(LS_CURRENT);
 
+        hideManualDragNotice();
         log(message);
         updateStatus(message);
     }
@@ -684,16 +685,17 @@
         let count = 0;
         let dragDetected = false;
         let dragAlerted = false;
-        let afterDragCount = 0;
 
         const timer = setInterval(() => {
             count++;
 
-            const bodyText = document.body.innerText || "";
-            const lower = bodyText.toLowerCase();
+            const lower = (document.body.innerText || "").toLowerCase();
 
+            // 1. SI 满员，换下一个 SI。
             if (hasSIFullWarning(lower)) {
                 clearInterval(timer);
+
+                hideManualDragNotice();
 
                 markSIFull(siId);
                 moveToNextSI();
@@ -709,31 +711,35 @@
                 return;
             }
 
-            const dragNow = hasDragVerification(lower);
-
-            if (dragNow) {
+            // 2. 检测到 Please drag：弹窗提醒你，并暂停等待。
+            if (hasDragVerification()) {
                 dragDetected = true;
-                afterDragCount = 0;
 
                 if (!dragAlerted) {
                     dragAlerted = true;
-                    log("Manual drag verification detected. Please drag it manually, then the script will continue.");
-                    updateStatus("Manual drag verification detected. Please manually complete 'Please drag'. The script will continue after Proceed appears.");
+
+                    log("Manual drag verification detected. Waiting for user to complete it.");
+                    updateStatus("Detected Please drag. Please manually drag it. The script will continue after Proceed appears.");
+
+                    showManualDragNotice();
 
                     setTimeout(() => {
-                        alert("Please manually complete the 'Please drag' verification. After that, the script will continue automatically.");
+                        alert("检测到 Please drag 验证。请回到网页界面手动拖动。拖动完成后，脚本会自动点击 Proceed。");
                     }, 100);
                 }
 
+                // 只要检测到拖动验证，就不允许进入普通 No Proceed 跳过逻辑。
                 if (count > DRAG_MANUAL_TIMEOUT_TICKS) {
                     clearInterval(timer);
+
+                    hideManualDragNotice();
 
                     addUsedEmail(email, "Manual drag timeout");
 
                     record(siId, email, {
                         status: "NO_PROCEED_SKIP_EMAIL",
                         eligible: false,
-                        reason: "Manual drag verification timeout; email used this round",
+                        reason: "Manual drag verification timeout; no Proceed appeared",
                         pageUrl: location.href
                     });
 
@@ -743,14 +749,13 @@
                 return;
             }
 
-            if (dragDetected && !dragNow) {
-                afterDragCount++;
-            }
-
+            // 3. Proceed 出现且可点击，自动点击 Proceed。
             const proceedBtn = findButtonByText("proceed");
 
-            if (proceedBtn) {
+            if (proceedBtn && !isDisabledLike(proceedBtn)) {
                 clearInterval(timer);
+
+                hideManualDragNotice();
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
 
@@ -772,34 +777,25 @@
                 return;
             }
 
-            // If no drag verification appears, use the original fast skip logic.
-            if (!dragDetected && count > NO_PROCEED_TIMEOUT_TICKS) {
+            // 4. 关键逻辑：
+            // 如果之前已经检测到拖动验证，即使现在 Please drag 文本消失了，也继续等 Proceed，不跳过。
+            if (dragDetected) {
+                updateStatus("Manual drag was detected. Waiting for Proceed after your manual drag...");
+                return;
+            }
+
+            // 5. 只有从头到尾都没有检测到拖动验证，也没有 Proceed，才跳过。
+            if (count > NO_PROCEED_TIMEOUT_TICKS) {
                 clearInterval(timer);
+
+                hideManualDragNotice();
 
                 addUsedEmail(email, "No Proceed");
 
                 record(siId, email, {
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
-                    reason: "No Proceed appeared, skip email",
-                    pageUrl: location.href
-                });
-
-                setTimeout(dispatchNext, 800);
-                return;
-            }
-
-            // If drag appeared and later disappeared, give the page a little more time for Proceed.
-            // 50 × 200 ms = 10 s after manual drag disappears.
-            if (dragDetected && afterDragCount > 50) {
-                clearInterval(timer);
-
-                addUsedEmail(email, "No Proceed after manual drag");
-
-                record(siId, email, {
-                    status: "NO_PROCEED_SKIP_EMAIL",
-                    eligible: false,
-                    reason: "No Proceed appeared after manual drag verification",
+                    reason: "No Proceed and no drag verification appeared after extended waiting",
                     pageUrl: location.href
                 });
 
@@ -818,15 +814,85 @@
             lower.includes("proposed ge cannot exceed 5");
     }
 
-    function hasDragVerification(lowerText) {
-        const lower = String(lowerText || "").toLowerCase();
+    function hasDragVerification() {
+        const text = String(document.body.innerText || "").toLowerCase();
 
-        return lower.includes("please drag") ||
-            lower.includes("drag to verify") ||
-            lower.includes("drag") && lower.includes("verify") ||
-            lower.includes("拖动") ||
-            lower.includes("请拖动") ||
-            lower.includes("滑动验证");
+        if (
+            text.includes("please drag") ||
+            text.includes("drag to verify") ||
+            text.includes("drag") && text.includes("verify") ||
+            text.includes("拖动") ||
+            text.includes("请拖动") ||
+            text.includes("滑动验证")
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function showManualDragNotice() {
+        let box = document.getElementById("gea-manual-drag-notice");
+
+        if (!box) {
+            box = document.createElement("div");
+            box.id = "gea-manual-drag-notice";
+
+            Object.assign(box.style, {
+                position: "fixed",
+                right: "24px",
+                top: "24px",
+                zIndex: "10000000",
+                background: "#fffbe6",
+                color: "#5c3b00",
+                border: "2px solid #faad14",
+                borderRadius: "10px",
+                padding: "14px 18px",
+                fontSize: "15px",
+                fontWeight: "700",
+                boxShadow: "0 4px 18px rgba(0,0,0,0.28)",
+                maxWidth: "380px",
+                lineHeight: "1.5"
+            });
+
+            document.body.appendChild(box);
+        }
+
+        box.innerHTML = `
+            ⚠️ 检测到 Please drag 验证<br>
+            请回到网页界面手动拖动。<br>
+            拖动完成后，脚本会自动点击 Proceed。
+        `;
+
+        box.style.display = "block";
+    }
+
+    function hideManualDragNotice() {
+        const box = document.getElementById("gea-manual-drag-notice");
+        if (box) box.style.display = "none";
+    }
+
+    function isDisabledLike(el) {
+        if (!el) return true;
+
+        const disabledAttr = el.disabled ||
+            el.getAttribute("disabled") !== null ||
+            el.getAttribute("aria-disabled") === "true";
+
+        const cls = String(el.className || "").toLowerCase();
+
+        const disabledClass = cls.includes("disabled") ||
+            cls.includes("disable") ||
+            cls.includes("btn-disabled");
+
+        const style = window.getComputedStyle(el);
+
+        const disabledStyle = style.pointerEvents === "none" ||
+            style.visibility === "hidden" ||
+            style.display === "none" ||
+            Number(style.opacity) < 0.3;
+
+        return disabledAttr || disabledClass || disabledStyle;
     }
 
     function markSIFull(siId) {
@@ -1032,6 +1098,7 @@
             LS_USED_EMAILS
         ].forEach(k => localStorage.removeItem(k));
 
+        hideManualDragNotice();
         updateStatus("Local data cleared.");
     }
 
