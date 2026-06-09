@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.0
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; faster no-Proceed skip.
+// @version      1.1
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; detect manual drag verification and continue after user completes it.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -25,16 +25,20 @@
     const NO_PROCEED_TIMEOUT_TICKS = 28;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v37";
-    const LS_SI_QUEUE = "mdpi_si_queue_v37";
-    const LS_RESULTS = "mdpi_ge_results_v37";
-    const LS_RUNNING = "mdpi_ge_running_v37";
-    const LS_LOG = "mdpi_ge_log_v37";
-    const LS_SI_INDEX = "mdpi_si_index_v37";
-    const LS_GE_INDEX = "mdpi_ge_index_v37";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v37";
-    const LS_CURRENT = "mdpi_current_task_v37";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v37";
+    // Manual human verification waiting time.
+    // 300 × 200 ms = 60 s. Increase this number if you need more time to drag manually.
+    const DRAG_MANUAL_TIMEOUT_TICKS = 300;
+
+    const LS_GE_POOL = "mdpi_ge_pool_v38";
+    const LS_SI_QUEUE = "mdpi_si_queue_v38";
+    const LS_RESULTS = "mdpi_ge_results_v38";
+    const LS_RUNNING = "mdpi_ge_running_v38";
+    const LS_LOG = "mdpi_ge_log_v38";
+    const LS_SI_INDEX = "mdpi_si_index_v38";
+    const LS_GE_INDEX = "mdpi_ge_index_v38";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v38";
+    const LS_CURRENT = "mdpi_current_task_v38";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v38";
 
     ready(() => {
         createPanel();
@@ -102,7 +106,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；Next 后无 Proceed 会更快跳过。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现 Please drag，会暂停等待你手动拖动，完成后继续自动 Proceed。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -267,6 +271,7 @@
             `Running: ${running ? "Yes" : "No"}`,
             `SI Status Filter: Pending GE invitation only`,
             `Auto Proceed: ON`,
+            `Manual Please-drag handling: pause and wait for user`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -677,11 +682,15 @@
 
     function waitForProceedOrSkip(siId, email) {
         let count = 0;
+        let dragDetected = false;
+        let dragAlerted = false;
+        let afterDragCount = 0;
 
         const timer = setInterval(() => {
             count++;
 
-            const lower = (document.body.innerText || "").toLowerCase();
+            const bodyText = document.body.innerText || "";
+            const lower = bodyText.toLowerCase();
 
             if (hasSIFullWarning(lower)) {
                 clearInterval(timer);
@@ -700,6 +709,44 @@
                 return;
             }
 
+            const dragNow = hasDragVerification(lower);
+
+            if (dragNow) {
+                dragDetected = true;
+                afterDragCount = 0;
+
+                if (!dragAlerted) {
+                    dragAlerted = true;
+                    log("Manual drag verification detected. Please drag it manually, then the script will continue.");
+                    updateStatus("Manual drag verification detected. Please manually complete 'Please drag'. The script will continue after Proceed appears.");
+
+                    setTimeout(() => {
+                        alert("Please manually complete the 'Please drag' verification. After that, the script will continue automatically.");
+                    }, 100);
+                }
+
+                if (count > DRAG_MANUAL_TIMEOUT_TICKS) {
+                    clearInterval(timer);
+
+                    addUsedEmail(email, "Manual drag timeout");
+
+                    record(siId, email, {
+                        status: "NO_PROCEED_SKIP_EMAIL",
+                        eligible: false,
+                        reason: "Manual drag verification timeout; email used this round",
+                        pageUrl: location.href
+                    });
+
+                    setTimeout(dispatchNext, 800);
+                }
+
+                return;
+            }
+
+            if (dragDetected && !dragNow) {
+                afterDragCount++;
+            }
+
             const proceedBtn = findButtonByText("proceed");
 
             if (proceedBtn) {
@@ -715,7 +762,9 @@
                 record(siId, email, {
                     status: "PROCEED_CLICKED",
                     eligible: true,
-                    reason: "Proceed clicked automatically",
+                    reason: dragDetected
+                        ? "Proceed clicked automatically after manual drag verification"
+                        : "Proceed clicked automatically",
                     pageUrl: location.href
                 });
 
@@ -723,7 +772,8 @@
                 return;
             }
 
-            if (count > NO_PROCEED_TIMEOUT_TICKS) {
+            // If no drag verification appears, use the original fast skip logic.
+            if (!dragDetected && count > NO_PROCEED_TIMEOUT_TICKS) {
                 clearInterval(timer);
 
                 addUsedEmail(email, "No Proceed");
@@ -732,6 +782,24 @@
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
                     reason: "No Proceed appeared, skip email",
+                    pageUrl: location.href
+                });
+
+                setTimeout(dispatchNext, 800);
+                return;
+            }
+
+            // If drag appeared and later disappeared, give the page a little more time for Proceed.
+            // 50 × 200 ms = 10 s after manual drag disappears.
+            if (dragDetected && afterDragCount > 50) {
+                clearInterval(timer);
+
+                addUsedEmail(email, "No Proceed after manual drag");
+
+                record(siId, email, {
+                    status: "NO_PROCEED_SKIP_EMAIL",
+                    eligible: false,
+                    reason: "No Proceed appeared after manual drag verification",
                     pageUrl: location.href
                 });
 
@@ -748,6 +816,17 @@
             lower.includes("number of proposed ge cannot exceed 5") ||
             lower.includes("cannot exceed 5 at most in each special issue") ||
             lower.includes("proposed ge cannot exceed 5");
+    }
+
+    function hasDragVerification(lowerText) {
+        const lower = String(lowerText || "").toLowerCase();
+
+        return lower.includes("please drag") ||
+            lower.includes("drag to verify") ||
+            lower.includes("drag") && lower.includes("verify") ||
+            lower.includes("拖动") ||
+            lower.includes("请拖动") ||
+            lower.includes("滑动验证");
     }
 
     function markSIFull(siId) {
