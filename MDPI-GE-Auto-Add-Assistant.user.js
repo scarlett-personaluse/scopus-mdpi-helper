@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.3
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual slider verification and continue after Proceed appears.
+// @version      1.3.1
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual slider verification and continue after Proceed appears; faster no-Proceed skip.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -19,9 +19,9 @@
 
     const UNLOCK_DAYS = 90;
 
-    // 150 × 200 ms = 30 s.
+    // 25 × 200 ms = 5 s.
     // If neither Proceed nor slider verification appears within this period, skip this email.
-    const NO_PROCEED_TIMEOUT_TICKS = 150;
+    const NO_PROCEED_TIMEOUT_TICKS = 25;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
     // 1800 × 200 ms = 360 s = 6 min.
@@ -105,7 +105,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现滑动验证，会弹窗提醒你手动拖动，完成后继续自动 Proceed。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现滑动验证，会弹窗提醒你手动拖动，完成后继续自动 Proceed。无 Proceed/无滑动验证约 5 秒后自动跳过。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -272,6 +272,7 @@
             `SI Status Filter: Pending GE invitation only`,
             `Auto Proceed: ON`,
             `Manual verification mode: popup + manual drag + wait for Proceed`,
+            `No-Proceed fast skip: about 5 seconds`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -665,7 +666,7 @@
                     pageUrl: location.href
                 });
 
-                setTimeout(dispatchNext, 800);
+                setTimeout(dispatchNext, 300);
             });
         }, 10000, () => {
             addUsedEmail(email, "FAILED_NO_EMAIL_INPUT");
@@ -677,7 +678,7 @@
                 pageUrl: location.href
             });
 
-            setTimeout(dispatchNext, 800);
+            setTimeout(dispatchNext, 300);
         });
     }
 
@@ -707,7 +708,7 @@
                     pageUrl: location.href
                 });
 
-                setTimeout(dispatchNext, 800);
+                setTimeout(dispatchNext, 300);
                 return;
             }
 
@@ -743,7 +744,7 @@
                         pageUrl: location.href
                     });
 
-                    setTimeout(dispatchNext, 800);
+                    setTimeout(dispatchNext, 300);
                 }
 
                 return;
@@ -783,7 +784,7 @@
                 return;
             }
 
-            // 5. Only skip when no slider verification and no Proceed appear after extended waiting.
+            // 5. Only skip when no slider verification and no Proceed appear after fast waiting.
             if (count > NO_PROCEED_TIMEOUT_TICKS) {
                 clearInterval(timer);
 
@@ -794,11 +795,11 @@
                 record(siId, email, {
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
-                    reason: "No Proceed and no slider verification appeared after extended waiting",
+                    reason: "No Proceed and no slider verification appeared after fast waiting",
                     pageUrl: location.href
                 });
 
-                setTimeout(dispatchNext, 800);
+                setTimeout(dispatchNext, 300);
             }
         }, NO_PROCEED_CHECK_INTERVAL_MS);
     }
