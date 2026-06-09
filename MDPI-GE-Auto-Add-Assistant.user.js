@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.3
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual slider verification and continue after Proceed appears.
+// @version      1.4
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; fast skip if no clickable Proceed; remind user to complete manual verification before Proceed.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -19,25 +19,32 @@
 
     const UNLOCK_DAYS = 90;
 
-    // 150 × 200 ms = 30 s.
-    // If neither Proceed nor slider verification appears within this period, skip this email.
-    const NO_PROCEED_TIMEOUT_TICKS = 150;
+    // Fast check after clicking Next.
+    // 15 × 200 ms = 3 s.
+    // If no clickable Proceed appears within this period, skip this email.
+    const NO_PROCEED_TIMEOUT_TICKS = 15;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
-    // 1800 × 200 ms = 360 s = 6 min.
-    // Once slider verification is detected, wait much longer for the user to complete it.
-    const DRAG_MANUAL_TIMEOUT_TICKS = 1800;
+    // After clickable Proceed is detected, remind user to complete manual verification.
+    // Then wait this many ticks before auto-clicking Proceed.
+    // 20 × 200 ms = 4 s.
+    // Increase if you need more time to finish manual slider verification.
+    const MANUAL_VERIFY_GRACE_TICKS = 20;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v40";
-    const LS_SI_QUEUE = "mdpi_si_queue_v40";
-    const LS_RESULTS = "mdpi_ge_results_v40";
-    const LS_RUNNING = "mdpi_ge_running_v40";
-    const LS_LOG = "mdpi_ge_log_v40";
-    const LS_SI_INDEX = "mdpi_si_index_v40";
-    const LS_GE_INDEX = "mdpi_ge_index_v40";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v40";
-    const LS_CURRENT = "mdpi_current_task_v40";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v40";
+    // If clickable Proceed was detected but later becomes unavailable, keep waiting up to this time.
+    // 1800 × 200 ms = 360 s = 6 min.
+    const PROCEED_WAIT_TIMEOUT_TICKS = 1800;
+
+    const LS_GE_POOL = "mdpi_ge_pool_v41";
+    const LS_SI_QUEUE = "mdpi_si_queue_v41";
+    const LS_RESULTS = "mdpi_ge_results_v41";
+    const LS_RUNNING = "mdpi_ge_running_v41";
+    const LS_LOG = "mdpi_ge_log_v41";
+    const LS_SI_INDEX = "mdpi_si_index_v41";
+    const LS_GE_INDEX = "mdpi_ge_index_v41";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v41";
+    const LS_CURRENT = "mdpi_current_task_v41";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v41";
 
     ready(() => {
         createPanel();
@@ -105,7 +112,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现滑动验证，会弹窗提醒你手动拖动，完成后继续自动 Proceed。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；无 Proceed 或灰色 Proceed 会快速跳过；有可用 Proceed 时提醒你手动完成验证。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -197,7 +204,7 @@
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 stopRun("Stopped by Esc.");
-                hideManualDragNotice();
+                hideManualVerifyNotice();
                 alert("GE Assistant stopped.");
             }
         });
@@ -270,8 +277,8 @@
             `Failed: ${failed}`,
             `Running: ${running ? "Yes" : "No"}`,
             `SI Status Filter: Pending GE invitation only`,
-            `Auto Proceed: ON`,
-            `Manual verification mode: popup + manual drag + wait for Proceed`,
+            `Fast skip: no clickable Proceed / grey Proceed`,
+            `Manual verification reminder: ON`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -490,7 +497,7 @@
         localStorage.setItem(LS_RUNNING, "0");
         localStorage.removeItem(LS_CURRENT);
 
-        hideManualDragNotice();
+        hideManualVerifyNotice();
         log(message);
         updateStatus(message);
     }
@@ -665,7 +672,7 @@
                     pageUrl: location.href
                 });
 
-                setTimeout(dispatchNext, 800);
+                setTimeout(dispatchNext, 500);
             });
         }, 10000, () => {
             addUsedEmail(email, "FAILED_NO_EMAIL_INPUT");
@@ -677,14 +684,15 @@
                 pageUrl: location.href
             });
 
-            setTimeout(dispatchNext, 800);
+            setTimeout(dispatchNext, 500);
         });
     }
 
     function waitForProceedOrSkip(siId, email) {
         let count = 0;
-        let dragDetected = false;
-        let dragAlerted = false;
+        let proceedDetected = false;
+        let alerted = false;
+        let waitAfterProceed = 0;
 
         const timer = setInterval(() => {
             count++;
@@ -695,7 +703,7 @@
             if (hasSIFullWarning(lower)) {
                 clearInterval(timer);
 
-                hideManualDragNotice();
+                hideManualVerifyNotice();
 
                 markSIFull(siId);
                 moveToNextSI();
@@ -707,59 +715,78 @@
                     pageUrl: location.href
                 });
 
-                setTimeout(dispatchNext, 800);
+                setTimeout(dispatchNext, 500);
                 return;
             }
 
-            // 2. Slider verification detected: alert user and wait.
-            if (hasDragVerification()) {
-                dragDetected = true;
+            const proceedBtn = findButtonByText("proceed");
 
-                if (!dragAlerted) {
-                    dragAlerted = true;
+            // 2. Before clickable Proceed is detected:
+            // no Proceed or grey/disabled Proceed -> fast skip.
+            if (!proceedDetected) {
+                if (!proceedBtn || isDisabledLike(proceedBtn)) {
+                    if (count > NO_PROCEED_TIMEOUT_TICKS) {
+                        clearInterval(timer);
 
-                    log("Manual slider verification detected. Waiting for user to complete it.");
-                    updateStatus("Detected manual slider verification. Please drag it manually. The script will continue after Proceed appears.");
+                        hideManualVerifyNotice();
 
-                    showManualDragNotice();
+                        addUsedEmail(email, "No clickable Proceed");
+
+                        record(siId, email, {
+                            status: "NO_PROCEED_SKIP_EMAIL",
+                            eligible: false,
+                            reason: proceedBtn
+                                ? "Proceed button exists but is disabled/grey after fast check"
+                                : "No Proceed button appeared after fast check",
+                            pageUrl: location.href
+                        });
+
+                        setTimeout(dispatchNext, 500);
+                    }
+
+                    return;
+                }
+
+                // 3. Clickable Proceed appears:
+                // remind user to complete manual verification.
+                proceedDetected = true;
+                waitAfterProceed = 0;
+
+                if (!alerted) {
+                    alerted = true;
+
+                    log("Clickable Proceed detected. Reminding user to complete manual verification.");
+                    updateStatus("Clickable Proceed detected. Please complete the manual verification now. Proceed will be clicked shortly.");
+
+                    showManualVerifyNotice();
 
                     setTimeout(() => {
-                        alert("检测到滑动验证。请回到网页界面手动拖动。拖动完成后，脚本会自动点击 Proceed。");
+                        alert("检测到可用 Proceed。请回到网页界面手动完成滑动验证。完成后脚本会自动点击 Proceed。");
                     }, 100);
                 }
 
-                // Once slider verification is detected, do not use the normal no-Proceed skip logic.
-                if (count > DRAG_MANUAL_TIMEOUT_TICKS) {
-                    clearInterval(timer);
-
-                    hideManualDragNotice();
-
-                    addUsedEmail(email, "Manual slider verification timeout");
-
-                    record(siId, email, {
-                        status: "NO_PROCEED_SKIP_EMAIL",
-                        eligible: false,
-                        reason: "Manual slider verification timeout; no Proceed appeared",
-                        pageUrl: location.href
-                    });
-
-                    setTimeout(dispatchNext, 800);
-                }
-
                 return;
             }
 
-            // 3. Proceed appears and is clickable: click it.
-            const proceedBtn = findButtonByText("proceed");
+            // 4. After Proceed was detected:
+            // give user a short grace period to finish manual verification.
+            waitAfterProceed++;
 
-            if (proceedBtn && !isDisabledLike(proceedBtn)) {
+            const proceedBtnAfter = findButtonByText("proceed");
+
+            if (waitAfterProceed < MANUAL_VERIFY_GRACE_TICKS) {
+                updateStatus(`Clickable Proceed detected. Waiting for manual verification... ${waitAfterProceed}/${MANUAL_VERIFY_GRACE_TICKS}`);
+                return;
+            }
+
+            if (proceedBtnAfter && !isDisabledLike(proceedBtnAfter)) {
                 clearInterval(timer);
 
-                hideManualDragNotice();
+                hideManualVerifyNotice();
 
                 log(`Click Proceed: SI ${siId}, ${email}`);
 
-                clickElement(proceedBtn);
+                clickElement(proceedBtnAfter);
 
                 incrementSICount(siId);
                 addUsedEmail(email, "Proceed clicked");
@@ -767,9 +794,7 @@
                 record(siId, email, {
                     status: "PROCEED_CLICKED",
                     eligible: true,
-                    reason: dragDetected
-                        ? "Proceed clicked automatically after manual slider verification"
-                        : "Proceed clicked automatically",
+                    reason: "Proceed clicked automatically after manual verification reminder",
                     pageUrl: location.href
                 });
 
@@ -777,24 +802,18 @@
                 return;
             }
 
-            // 4. If slider verification was detected before, keep waiting for Proceed.
-            if (dragDetected) {
-                updateStatus("Manual slider verification was detected. Waiting for Proceed after your manual drag...");
-                return;
-            }
-
-            // 5. Only skip when no slider verification and no Proceed appear after extended waiting.
-            if (count > NO_PROCEED_TIMEOUT_TICKS) {
+            // 5. If Proceed becomes unavailable after being detected, keep waiting for a while.
+            if (waitAfterProceed > PROCEED_WAIT_TIMEOUT_TICKS) {
                 clearInterval(timer);
 
-                hideManualDragNotice();
+                hideManualVerifyNotice();
 
-                addUsedEmail(email, "No Proceed");
+                addUsedEmail(email, "Proceed wait timeout");
 
                 record(siId, email, {
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
-                    reason: "No Proceed and no slider verification appeared after extended waiting",
+                    reason: "Clickable Proceed was detected, but no clickable Proceed remained after waiting",
                     pageUrl: location.href
                 });
 
@@ -813,44 +832,12 @@
             lower.includes("proposed ge cannot exceed 5");
     }
 
-    function hasDragVerification() {
-        const nodes = Array.from(document.querySelectorAll("body *")).filter(el => {
-            if (!el || !el.offsetParent) return false;
-
-            // Exclude this userscript's own panel, mini button, and notice.
-            if (
-                el.closest("#gea-panel") ||
-                el.closest("#gea-mini") ||
-                el.closest("#gea-manual-drag-notice")
-            ) {
-                return false;
-            }
-
-            return true;
-        });
-
-        return nodes.some(el => {
-            const text = String(el.innerText || el.textContent || "").toLowerCase().trim();
-            if (!text) return false;
-
-            return (
-                text.includes("please drag") ||
-                text.includes("drag to verify") ||
-                text.includes("slide to verify") ||
-                text.includes("drag the slider") ||
-                text.includes("拖动") ||
-                text.includes("请拖动") ||
-                text.includes("滑动验证")
-            );
-        });
-    }
-
-    function showManualDragNotice() {
-        let box = document.getElementById("gea-manual-drag-notice");
+    function showManualVerifyNotice() {
+        let box = document.getElementById("gea-manual-verify-notice");
 
         if (!box) {
             box = document.createElement("div");
-            box.id = "gea-manual-drag-notice";
+            box.id = "gea-manual-verify-notice";
 
             Object.assign(box.style, {
                 position: "fixed",
@@ -873,16 +860,16 @@
         }
 
         box.innerHTML = `
-            ⚠️ 检测到滑动验证<br>
-            请回到网页界面手动拖动。<br>
-            拖动完成后，脚本会自动点击 Proceed。
+            ⚠️ 检测到可用 Proceed<br>
+            请回到网页界面手动完成滑动验证。<br>
+            完成后，脚本会自动点击 Proceed。
         `;
 
         box.style.display = "block";
     }
 
-    function hideManualDragNotice() {
-        const box = document.getElementById("gea-manual-drag-notice");
+    function hideManualVerifyNotice() {
+        const box = document.getElementById("gea-manual-verify-notice");
         if (box) box.style.display = "none";
     }
 
@@ -897,7 +884,8 @@
 
         const disabledClass = cls.includes("disabled") ||
             cls.includes("disable") ||
-            cls.includes("btn-disabled");
+            cls.includes("btn-disabled") ||
+            cls.includes("inactive");
 
         const style = window.getComputedStyle(el);
 
@@ -1112,7 +1100,7 @@
             LS_USED_EMAILS
         ].forEach(k => localStorage.removeItem(k));
 
-        hideManualDragNotice();
+        hideManualVerifyNotice();
         updateStatus("Local data cleared.");
     }
 
