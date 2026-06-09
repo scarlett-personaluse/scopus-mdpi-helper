@@ -2,8 +2,8 @@
 // @name         MDPI GE Auto-Add
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
 // @namespace    MDPI-GE-Auto-Add-Assistant
-// @version      1.2
-// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual Please-drag verification and continue after Proceed appears.
+// @version      1.3
+// @description  Multi-SI GE auto-add assistant: only load Pending GE invitation SIs; switch SI only by official exceed-5 warning; pause for manual slider verification and continue after Proceed appears.
 // @author       Jiali Tang
 // @match        https://susy.mdpi.com/*
 // @grant        GM_setClipboard
@@ -19,25 +19,25 @@
 
     const UNLOCK_DAYS = 90;
 
-    // 原来 5.6 秒太短，容易在 Please drag 还没加载出来时直接跳过。
     // 150 × 200 ms = 30 s.
+    // If neither Proceed nor slider verification appears within this period, skip this email.
     const NO_PROCEED_TIMEOUT_TICKS = 150;
     const NO_PROCEED_CHECK_INTERVAL_MS = 200;
 
-    // 检测到 Please drag 后，不再普通跳过，而是长时间等待你手动拖动。
     // 1800 × 200 ms = 360 s = 6 min.
+    // Once slider verification is detected, wait much longer for the user to complete it.
     const DRAG_MANUAL_TIMEOUT_TICKS = 1800;
 
-    const LS_GE_POOL = "mdpi_ge_pool_v39";
-    const LS_SI_QUEUE = "mdpi_si_queue_v39";
-    const LS_RESULTS = "mdpi_ge_results_v39";
-    const LS_RUNNING = "mdpi_ge_running_v39";
-    const LS_LOG = "mdpi_ge_log_v39";
-    const LS_SI_INDEX = "mdpi_si_index_v39";
-    const LS_GE_INDEX = "mdpi_ge_index_v39";
-    const LS_SI_COUNTS = "mdpi_si_round_counts_v39";
-    const LS_CURRENT = "mdpi_current_task_v39";
-    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v39";
+    const LS_GE_POOL = "mdpi_ge_pool_v40";
+    const LS_SI_QUEUE = "mdpi_si_queue_v40";
+    const LS_RESULTS = "mdpi_ge_results_v40";
+    const LS_RUNNING = "mdpi_ge_running_v40";
+    const LS_LOG = "mdpi_ge_log_v40";
+    const LS_SI_INDEX = "mdpi_si_index_v40";
+    const LS_GE_INDEX = "mdpi_ge_index_v40";
+    const LS_SI_COUNTS = "mdpi_si_round_counts_v40";
+    const LS_CURRENT = "mdpi_current_task_v40";
+    const LS_USED_EMAILS = "mdpi_used_emails_this_round_v40";
 
     ready(() => {
         createPanel();
@@ -105,7 +105,7 @@
 
             <div style="padding:12px;font-size:13px;">
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">
-                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现 Please drag，会弹窗提醒你手动拖动，完成后继续自动 Proceed。
+                    默认自动 Proceed；只加载 Status = Pending GE invitation 的 SI；只有页面出现“GE cannot exceed 5”满员提示时才换下一个 SI；如果出现滑动验证，会弹窗提醒你手动拖动，完成后继续自动 Proceed。
                 </div>
 
                 <input type="file" id="gea-file" accept=".csv" style="margin-bottom:6px;width:100%;">
@@ -271,7 +271,7 @@
             `Running: ${running ? "Yes" : "No"}`,
             `SI Status Filter: Pending GE invitation only`,
             `Auto Proceed: ON`,
-            `Please-drag mode: popup + manual drag + wait for Proceed`,
+            `Manual verification mode: popup + manual drag + wait for Proceed`,
             current ? `Current: SI ${current.siId} | ${current.email}` : `Current: -`,
             extra
         ].join("\n");
@@ -691,7 +691,7 @@
 
             const lower = (document.body.innerText || "").toLowerCase();
 
-            // 1. SI 满员，换下一个 SI。
+            // 1. SI full: move to next SI.
             if (hasSIFullWarning(lower)) {
                 clearInterval(timer);
 
@@ -711,35 +711,35 @@
                 return;
             }
 
-            // 2. 检测到 Please drag：弹窗提醒你，并暂停等待。
+            // 2. Slider verification detected: alert user and wait.
             if (hasDragVerification()) {
                 dragDetected = true;
 
                 if (!dragAlerted) {
                     dragAlerted = true;
 
-                    log("Manual drag verification detected. Waiting for user to complete it.");
-                    updateStatus("Detected Please drag. Please manually drag it. The script will continue after Proceed appears.");
+                    log("Manual slider verification detected. Waiting for user to complete it.");
+                    updateStatus("Detected manual slider verification. Please drag it manually. The script will continue after Proceed appears.");
 
                     showManualDragNotice();
 
                     setTimeout(() => {
-                        alert("检测到 Please drag 验证。请回到网页界面手动拖动。拖动完成后，脚本会自动点击 Proceed。");
+                        alert("检测到滑动验证。请回到网页界面手动拖动。拖动完成后，脚本会自动点击 Proceed。");
                     }, 100);
                 }
 
-                // 只要检测到拖动验证，就不允许进入普通 No Proceed 跳过逻辑。
+                // Once slider verification is detected, do not use the normal no-Proceed skip logic.
                 if (count > DRAG_MANUAL_TIMEOUT_TICKS) {
                     clearInterval(timer);
 
                     hideManualDragNotice();
 
-                    addUsedEmail(email, "Manual drag timeout");
+                    addUsedEmail(email, "Manual slider verification timeout");
 
                     record(siId, email, {
                         status: "NO_PROCEED_SKIP_EMAIL",
                         eligible: false,
-                        reason: "Manual drag verification timeout; no Proceed appeared",
+                        reason: "Manual slider verification timeout; no Proceed appeared",
                         pageUrl: location.href
                     });
 
@@ -749,7 +749,7 @@
                 return;
             }
 
-            // 3. Proceed 出现且可点击，自动点击 Proceed。
+            // 3. Proceed appears and is clickable: click it.
             const proceedBtn = findButtonByText("proceed");
 
             if (proceedBtn && !isDisabledLike(proceedBtn)) {
@@ -768,7 +768,7 @@
                     status: "PROCEED_CLICKED",
                     eligible: true,
                     reason: dragDetected
-                        ? "Proceed clicked automatically after manual drag verification"
+                        ? "Proceed clicked automatically after manual slider verification"
                         : "Proceed clicked automatically",
                     pageUrl: location.href
                 });
@@ -777,14 +777,13 @@
                 return;
             }
 
-            // 4. 关键逻辑：
-            // 如果之前已经检测到拖动验证，即使现在 Please drag 文本消失了，也继续等 Proceed，不跳过。
+            // 4. If slider verification was detected before, keep waiting for Proceed.
             if (dragDetected) {
-                updateStatus("Manual drag was detected. Waiting for Proceed after your manual drag...");
+                updateStatus("Manual slider verification was detected. Waiting for Proceed after your manual drag...");
                 return;
             }
 
-            // 5. 只有从头到尾都没有检测到拖动验证，也没有 Proceed，才跳过。
+            // 5. Only skip when no slider verification and no Proceed appear after extended waiting.
             if (count > NO_PROCEED_TIMEOUT_TICKS) {
                 clearInterval(timer);
 
@@ -795,7 +794,7 @@
                 record(siId, email, {
                     status: "NO_PROCEED_SKIP_EMAIL",
                     eligible: false,
-                    reason: "No Proceed and no drag verification appeared after extended waiting",
+                    reason: "No Proceed and no slider verification appeared after extended waiting",
                     pageUrl: location.href
                 });
 
@@ -815,20 +814,35 @@
     }
 
     function hasDragVerification() {
-        const text = String(document.body.innerText || "").toLowerCase();
+        const nodes = Array.from(document.querySelectorAll("body *")).filter(el => {
+            if (!el || !el.offsetParent) return false;
 
-        if (
-            text.includes("please drag") ||
-            text.includes("drag to verify") ||
-            text.includes("drag") && text.includes("verify") ||
-            text.includes("拖动") ||
-            text.includes("请拖动") ||
-            text.includes("滑动验证")
-        ) {
+            // Exclude this userscript's own panel, mini button, and notice.
+            if (
+                el.closest("#gea-panel") ||
+                el.closest("#gea-mini") ||
+                el.closest("#gea-manual-drag-notice")
+            ) {
+                return false;
+            }
+
             return true;
-        }
+        });
 
-        return false;
+        return nodes.some(el => {
+            const text = String(el.innerText || el.textContent || "").toLowerCase().trim();
+            if (!text) return false;
+
+            return (
+                text.includes("please drag") ||
+                text.includes("drag to verify") ||
+                text.includes("slide to verify") ||
+                text.includes("drag the slider") ||
+                text.includes("拖动") ||
+                text.includes("请拖动") ||
+                text.includes("滑动验证")
+            );
+        });
     }
 
     function showManualDragNotice() {
@@ -859,7 +873,7 @@
         }
 
         box.innerHTML = `
-            ⚠️ 检测到 Please drag 验证<br>
+            ⚠️ 检测到滑动验证<br>
             请回到网页界面手动拖动。<br>
             拖动完成后，脚本会自动点击 Proceed。
         `;
