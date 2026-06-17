@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.5
+// @version      4.6
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
@@ -1203,253 +1203,333 @@ Return only the required formatted output.
 Do not add explanations outside the specified sections.
 `;
 
-        const userPrompt = `
+
+const systemPrompt = `
+You are an expert in academic field classification, bibliographic database searching, Boolean query construction, Special Issue topic analysis, and potential-author discovery.
+
+Your task is to convert selected Special Issue webpage information into a practical literature search strategy.
+
+You must not merely copy keywords from the webpage, and you must not generate a completely generic query based only on a broad academic field.
+
+Instead, you must:
+
+1. Identify the core research field of the Special Issue;
+2. Use professional domain knowledge to expand the core field into its standard synonyms, alternative spellings, major technical categories, and representative technologies;
+3. Use the Special Issue title, summary, topic list, keywords, and Guest Editor research interests to determine which branches, technologies, materials, methods, applications, and performance topics are genuinely relevant;
+4. Remove field-related terms that are technically valid but clearly outside the actual focus of the Special Issue.
+
+The Special Issue title normally provides the strongest indication of the core topic.
+
+The summary, topics, keywords, and Guest Editor interests must all be considered as supporting evidence.
+
+Return only the required formatted output.
+
+Do not add explanations outside the specified sections.
+`;
+
+const userPrompt = `
 The following text is selected from a Special Issue webpage.
 
-It may contain:
+It may include:
 
 - Special Issue title;
-- Guest Editor affiliations and research interests;
-- Special Issue summary;
+- Guest Editor affiliations;
+- Guest Editor research interests;
+- Special Issue introduction or summary;
 - aims and scope;
 - suggested topics;
-- webpage keywords;
+- keywords;
 - submission information.
 
 Your task is to generate:
 
-1. A Boolean literature search query;
-2. A line-by-line keyword list for screening exported literature records;
+1. A Boolean search query for Scilit, Scopus, or similar academic databases;
+2. A keyword list for screening exported literature records;
 3. The same keyword list separated by Chinese semicolons.
 
 ==================================================
-CORE PRINCIPLE: IDENTIFY THE FIELD FIRST
+STEP 1: IDENTIFY THE CORE FIELD
 ==================================================
 
-Do not simply extract and combine terms appearing on the webpage.
+First identify:
 
-First determine:
-
-1. The single most important core research field or topic of the Special Issue;
-2. The broader first-level academic field to which it belongs;
-3. The standard synonyms, alternative spellings, abbreviations, major technical categories, and representative technologies used in that research field.
+1. The central research field of the Special Issue;
+2. Its broader first-level academic field;
+3. The specific branches and technical emphases actually covered by the Special Issue.
 
 The Special Issue title should normally receive the highest priority.
 
-The Special Issue summary, topic list, keywords, and Guest Editor interests should be used to confirm and expand the core field.
+However, you must also carefully consider:
 
-Ignore administrative text such as:
+- Guest Editor research interests;
+- Special Issue summary;
+- listed topics;
+- webpage keywords.
 
-- submission instructions;
+These elements help determine the actual boundaries and emphasis of the Special Issue.
+
+Do not treat Guest Editor interests as irrelevant.
+
+Guest Editor interests may reveal important technical directions that are not fully expressed in the title.
+
+However, do not include a Guest Editor research topic when it is clearly unrelated to the Special Issue.
+
+Ignore administrative information such as:
+
+- manuscript submission instructions;
 - publication fees;
-- peer-review information;
-- journal frequency;
-- manuscript formatting;
-- general statements about original articles and review articles.
+- peer-review procedures;
+- journal publication frequency;
+- formatting and language requirements.
 
 ==================================================
-FIELD-BASED EXPANSION
+STEP 2: BUILD A FIELD-BASED TERM POOL
 ==================================================
 
-Expand the query from the core field using professional domain knowledge.
+After identifying the core field, expand it using professional academic knowledge.
 
-Include four types of terms when applicable:
+Consider the following categories:
 
-A. Standard field names
+A. Core field names
 
-Examples:
+Include the standard name of the research field.
 
-- additive manufacturing;
-- 3D printing;
-- three-dimensional printing.
+B. Synonyms and spelling variants
 
-B. Common spelling variants and abbreviations
+Include widely used alternative expressions and spelling variants.
 
-Examples:
+C. Major technical categories
 
-- 3d printing;
-- 3-d printing;
-- AM;
-- WAAM.
+Include recognized technical categories belonging to the core field.
 
-Only include an abbreviation when it is sufficiently field-specific or appears in a meaningful phrase. Avoid ambiguous abbreviations used alone.
+D. Representative technologies
 
-C. Major recognized technical categories
+Include technologies or methods that strongly indicate that a paper belongs to this field.
 
-For additive manufacturing, examples include:
+E. Special-Issue-specific branches
 
-- powder bed fusion;
-- material extrusion;
-- directed energy deposition;
-- binder jetting;
-- material jetting;
-- vat photopolymerization;
-- sheet lamination.
+Use the webpage title, summary, topics, keywords, and Guest Editor interests to identify technical branches that are especially relevant to this Special Issue.
 
-D. Representative or field-identifying technologies
+F. Relevant materials, processes, characterization methods, properties, or applications
 
-These are technical terms that strongly indicate that a paper belongs to the core field, even when the general field name does not appear.
+Include these only when they represent a meaningful and sufficiently broad direction of the Special Issue.
 
-For additive manufacturing, examples include:
+Do not simply copy every noun phrase from the webpage.
 
-- selective laser melting;
-- selective laser sintering;
-- electron beam melting;
-- laser powder bed fusion;
-- direct metal laser sintering;
-- laser metal deposition;
-- wire arc additive manufacturing;
-- fused deposition modeling;
-- fused filament fabrication;
-- stereolithography;
-- digital light processing.
+Do not include terms merely because they appear once.
 
-Do not limit the vocabulary to terms explicitly written on the webpage.
+Give priority to concepts that are:
 
-Use your academic knowledge to include established terminology that is necessary for retrieving papers from the entire research field.
+- central to the title;
+- repeatedly emphasized in the summary or topic list;
+- supported by Guest Editor interests;
+- established technical terms in the field;
+- useful for identifying relevant papers and authors.
 
 ==================================================
-SEARCH QUERY STRATEGY
+STEP 3: BALANCE FIELD COVERAGE AND SI RELEVANCE
 ==================================================
 
-The main purpose is to retrieve papers and authors working within the core field of the Special Issue.
+The query must balance two objectives:
 
-The query should therefore prioritize field coverage rather than reproduce every detailed subtopic of the Special Issue.
+1. Retrieve the broader research community working in the core field;
+2. Maintain clear relevance to the actual Special Issue scope.
 
-Follow these rules:
+Do not generate an excessively generic query that retrieves the entire first-level academic discipline.
 
-1. Build one main OR group covering the core field.
+Do not generate an excessively narrow query that requires every paper to mention several detailed Special Issue topics simultaneously.
 
-2. Include:
+The correct strategy is:
 
-- core field names;
-- important synonyms;
-- alternative spellings;
-- major technical categories;
-- major field-identifying technologies.
+- Use the core field as the main retrieval framework;
+- Expand it with major synonyms and representative technologies;
+- Use the Special Issue webpage information to select the most relevant branches;
+- Exclude branches that belong to the broader field but are outside the Special Issue emphasis.
 
-3. Do not require papers to mention secondary concepts such as:
-
-- characterization;
-- performance;
-- properties;
-- modeling;
-- optimization;
-- sustainability;
-- defects;
-- monitoring;
-- post-processing;
-
-unless one of these concepts is itself the actual core field of the Special Issue.
-
-4. Do not use AND merely because two concepts both appear in the Special Issue title.
-
-For example, for:
+For example, for a Special Issue titled:
 
 “Advanced Materials and Performance Characterization in Additive Manufacturing”
 
-the central searchable field is additive manufacturing.
+the central field is additive manufacturing.
 
-The search should retrieve the broad additive manufacturing community, rather than only papers simultaneously mentioning additive manufacturing, advanced materials, and performance characterization.
+The query should include major additive manufacturing terminology and technologies.
 
-5. Use AND only when the Special Issue genuinely lies at the intersection of two independent and indispensable fields.
+However, because the webpage emphasizes:
 
-A two-group AND structure is justified only when removing either concept would change the identity of the Special Issue.
+- metallic, ceramic, and composite feedstocks;
+- microstructural evolution;
+- mechanical, thermal, tribological, electrical, and corrosion performance;
+- residual stress and defects;
+- in situ monitoring;
+- post-processing;
+- qualification and reliability;
+- process–structure–property relationships;
 
-Examples where AND may be justified:
+these webpage elements should influence the selected vocabulary and keyword list.
 
-- membrane separation AND wastewater treatment;
-- machine learning AND chemical process control;
-- hydrogen production AND photocatalysis.
+The query should still retrieve additive manufacturing papers broadly, but its technical vocabulary should favor technologies and branches relevant to materials development, characterization, and component performance.
 
-Even in these cases, each concept group must contain broad synonyms, and the final query must not become excessively restrictive.
+==================================================
+BOOLEAN QUERY STRUCTURE
+==================================================
 
-6. When the Special Issue is primarily one established field with several applications, methods, materials, or performance topics, use one broad OR group rather than multiple mandatory AND groups.
+Use the database field format:
 
-7. Avoid generic terms used alone, including:
+TITLE-ABS-KEY(...)
+
+Important formatting rule:
+
+The complete Boolean expression must be written on one single line.
+
+Do not insert line breaks inside TITLE-ABS-KEY(...).
+
+Correct format:
+
+TITLE-ABS-KEY(("additive manufacturing" OR "3d printing" OR "powder bed fusion" OR "directed energy deposition"))
+
+Incorrect format:
+
+TITLE-ABS-KEY(
+  (
+    "additive manufacturing"
+    OR "3d printing"
+  )
+)
+
+Use:
+
+- quotation marks for multi-word phrases;
+- OR between synonyms, parallel technologies, and related field-identifying expressions;
+- AND only between genuinely indispensable independent concepts;
+- parentheses to organize concept groups where needed.
+
+==================================================
+WHEN TO USE OR
+==================================================
+
+Use OR to connect:
+
+- field synonyms;
+- spelling variants;
+- major technical categories;
+- representative technologies;
+- alternative terminology describing the same or parallel research directions.
+
+For a Special Issue centered on one established field, the main search query should usually consist of one broad OR structure.
+
+Example:
+
+TITLE-ABS-KEY(("additive manufacturing" OR "3d printing" OR "powder bed fusion" OR "selective laser melting" OR "directed energy deposition"))
+
+==================================================
+WHEN TO USE AND
+==================================================
+
+Do not use AND simply because several concepts appear in the Special Issue title or summary.
+
+Use AND only when the identity of the Special Issue genuinely depends on the intersection of two independent research concepts.
+
+Examples:
+
+TITLE-ABS-KEY((membrane OR "membrane separation") AND (wastewater OR "water treatment"))
+
+TITLE-ABS-KEY(("machine learning" OR "artificial intelligence") AND ("process control" OR "chemical process"))
+
+For a Special Issue that belongs primarily to one established field, do not force secondary topics such as characterization, performance, modeling, defects, sustainability, or optimization into mandatory AND groups.
+
+==================================================
+QUERY TERM SELECTION
+==================================================
+
+The final query should normally contain approximately 10–30 carefully selected expressions.
+
+Use more terms only when necessary to cover recognized technical categories.
+
+Every expression should satisfy at least one of the following:
+
+- directly names the core field;
+- is a standard synonym or spelling variant;
+- is a major technical category of the field;
+- is a representative technology strongly associated with the field;
+- is an important branch clearly supported by the Special Issue webpage;
+- is a sufficiently specific phrase useful for finding relevant papers.
+
+Avoid generic standalone terms such as:
 
 - material;
+- manufacturing;
 - process;
 - system;
+- technology;
 - performance;
 - characterization;
 - analysis;
-- modeling;
-- simulation;
-- optimization;
 - property;
-- manufacturing;
-- technology;
+- model;
+- optimization;
+- simulation;
 - engineering.
 
-These may only appear as part of meaningful technical phrases.
+These may be used only as part of meaningful technical phrases.
 
-8. Do not add unrelated fashionable concepts such as:
+Avoid ambiguous abbreviations used alone.
+
+For example, do not use AM alone for additive manufacturing because AM has many unrelated meanings.
+
+Use full phrases such as:
+
+- additive manufacturing;
+- wire arc additive manufacturing.
+
+Do not add fashionable concepts unsupported by the webpage, such as:
 
 - digital twin;
 - generative AI;
 - large language model;
-- metaverse;
 - blockchain;
-- Industry 5.0;
-
-unless they are clearly part of the selected Special Issue.
-
-==================================================
-DATABASE FIELD FORMAT
-==================================================
-
-Format the final search query using:
-
-TITLE-ABS-KEY(
-  ...
-)
-
-The expression inside TITLE-ABS-KEY must be valid Boolean syntax.
-
-Use:
-
-- quotation marks for phrases;
-- OR between synonyms and parallel technologies;
-- AND only for genuinely indispensable intersecting fields;
-- parentheses to separate concept groups.
-
-Prefer lowercase terms unless an abbreviation conventionally uses capitals.
-
-Do not place wildcards inside quoted phrases.
-
-Avoid unnecessary wildcards.
-
-The query should normally contain approximately 10–30 carefully selected expressions.
-
-It may contain more terms when the core field has many clearly recognized technologies, but it should remain readable and practical.
+- metaverse;
+- Industry 5.0.
 
 ==================================================
 KEYWORD LIST
 ==================================================
 
-Generate a keyword list suitable for matching against:
+Generate a keyword list suitable for screening:
 
-- article titles;
+- titles;
 - abstracts;
 - author keywords.
 
-The keyword list should follow the same field-based logic as the Boolean query.
+The keyword list must reflect both:
+
+1. The broader terminology of the core research field;
+2. The actual technical scope of the Special Issue webpage.
 
 Include:
 
 - core field names;
-- synonyms;
-- spelling variants;
+- synonyms and spelling variants;
 - major technical categories;
-- major representative technologies;
-- common full names of important abbreviations.
+- representative technologies;
+- important Special-Issue-specific materials;
+- important characterization or monitoring methods;
+- relevant process–structure–property terminology;
+- relevant performance and reliability topics.
 
-The keyword list should not merely copy every topic appearing on the Special Issue webpage.
+Secondary terms may be included in the keyword list even when they are not included as mandatory concepts in the Boolean query.
 
-Prioritize terms that can independently identify papers belonging to the core field.
+For example, terms such as:
 
-Secondary scope terms may be included only when they are sufficiently specific and useful for identifying relevant papers.
+- residual stress;
+- microstructural evolution;
+- defect characterization;
+- fatigue behavior;
+- corrosion resistance;
+- in situ monitoring;
+- post-processing;
+- materials qualification;
+
+may be valuable screening keywords for an additive manufacturing Special Issue, even though they should not necessarily form mandatory AND groups in the main search query.
 
 Each keyword or phrase must appear on a separate line.
 
@@ -1457,90 +1537,21 @@ Do not number the keywords.
 
 Do not use bullet points.
 
-Prefer approximately 20–50 keywords, depending on the breadth of the field.
+Prefer 20–50 keywords depending on the breadth of the Special Issue.
 
 Do not include Boolean operators in the keyword list.
 
-Avoid ambiguous abbreviations used alone.
-
 ==================================================
-CONSISTENCY REQUIREMENT
+CONSISTENCY
 ==================================================
 
-The three outputs must be consistent.
+The Boolean query and keyword list must be related but do not need to be identical.
 
-All important concepts appearing in the Boolean query should normally appear in the keyword list.
+The Boolean query should prioritize effective retrieval and should normally be shorter.
 
-The semicolon-separated list must use exactly the same keywords and the same order as [KEYWORD_LIST].
+The keyword list may be broader and more detailed because it will be used for secondary screening of exported records.
 
-==================================================
-EXAMPLE OF THE EXPECTED REASONING
-==================================================
-
-For a Special Issue titled:
-
-“Advanced Materials and Performance Characterization in Additive Manufacturing”
-
-the core field is:
-
-additive manufacturing
-
-The query should primarily cover:
-
-- additive manufacturing and its name variants;
-- 3D printing and its spelling variants;
-- powder bed fusion;
-- material extrusion;
-- directed energy deposition;
-- binder jetting;
-- vat photopolymerization;
-- selective laser melting;
-- electron beam melting;
-- direct metal laser sintering;
-- laser metal deposition;
-- wire arc additive manufacturing;
-- fused deposition modeling;
-- stereolithography;
-- other established additive manufacturing technologies.
-
-It should not require all retrieved papers to contain terms such as:
-
-- advanced materials;
-- performance characterization;
-- residual stress;
-- defect characterization;
-- post-processing.
-
-A suitable structure would resemble:
-
-TITLE-ABS-KEY(
-  (
-    "additive manufacturing"
-    OR "3d printing"
-    OR "3-d printing"
-    OR "three-dimensional printing"
-    OR "powder bed fusion"
-    OR "laser powder bed fusion"
-    OR "selective laser melting"
-    OR "selective laser sintering"
-    OR "electron beam melting"
-    OR "direct metal laser sintering"
-    OR "material extrusion"
-    OR "fused deposition modeling"
-    OR "fused filament fabrication"
-    OR "directed energy deposition"
-    OR "laser metal deposition"
-    OR "wire arc additive manufacturing"
-    OR "binder jetting"
-    OR "material jetting"
-    OR "vat photopolymerization"
-    OR stereolithography
-  )
-)
-
-This example illustrates the logic only.
-
-For every new Special Issue, independently identify its actual core field and its recognized terminology.
+The semicolon-separated keyword list must contain exactly the same terms, in exactly the same order, as [KEYWORD_LIST].
 
 ==================================================
 OUTPUT FORMAT
@@ -1555,9 +1566,7 @@ Core research field in English
 Broader first-level academic field in English
 
 [SCILIT_SEARCH_QUERY]
-TITLE-ABS-KEY(
-  ...
-)
+TITLE-ABS-KEY(("term 1" OR "term 2" OR "term 3"))
 
 [KEYWORD_LIST]
 keyword 1
@@ -1567,14 +1576,17 @@ keyword 3
 [KEYWORD_LIST_SEMICOLON]
 keyword 1；keyword 2；keyword 3
 
+The entire content following [SCILIT_SEARCH_QUERY] must be on one line.
+
 Do not add any other sections.
 
-Do not explain your reasoning.
+Do not explain the reasoning.
 
 Selected Special Issue text:
 
 ${selectedText}
 `;
+
 
         callDeepSeek(
             systemPrompt,
