@@ -1,14 +1,11 @@
-```javascript
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.6.2
+// @version      4.6.3
 // @author       Jiali Tang
-// @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
-// @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
+// @icon         https://pub-mdpi-res.com/img/journals/processes-logo-sq.png
+// @description  Match scholars with Processes Special Issues and generate literature search queries
 // @match        *://*/*
-*// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
-*// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
 // @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
@@ -20,7 +17,11 @@
 // ==/UserScript==
 
 (function () {
-    'use strict';
+    "use strict";
+
+    // =========================================================
+    // Basic settings
+    // =========================================================
 
     const MODEL = "deepseek-chat";
 
@@ -35,29 +36,92 @@
     const CACHE_TIME_KEY = "processes_existing_si_titles_cache_time";
     const SI_HASH_KEY = "processes_existing_si_titles_hash";
 
-    GM_registerMenuCommand("Set / Reset DeepSeek API Key", () => {
-        const newKey = prompt("Please enter your DeepSeek API Key:");
-        if (!newKey) return;
+    const UI_IDS = {
+        MINI_BUTTON: "processes-si-mini-button",
+        PANEL: "processes-si-panel",
+        DRAG_HANDLE: "processes-si-drag-handle",
+        MINIMIZE: "processes-si-minimize",
+        OUTPUT: "processes-si-output",
+        STATUS: "processes-si-status",
+        CLEANER_INPUT: "processes-si-cleaner-input"
+    };
 
-        GM_setValue(API_KEY_STORAGE, newKey.trim());
-        GM_setValue(API_KEY_TIME_STORAGE, String(Date.now()));
+    // =========================================================
+    // Startup
+    // =========================================================
 
-        alert("DeepSeek API Key saved for 7 days in this browser.");
-    });
+    registerMenuCommands();
+    initializeUI();
 
-    GM_registerMenuCommand("Refresh Processes SI List", () => {
-        refreshSIList();
-    });
+    function registerMenuCommands() {
+        GM_registerMenuCommand(
+            "Set / Reset DeepSeek API Key",
+            setApiKey
+        );
 
-    GM_registerMenuCommand("Check Processes SI List Updates", () => {
-        checkSIListUpdates();
-    });
+        GM_registerMenuCommand(
+            "Refresh Processes SI List",
+            refreshSIList
+        );
 
-    createUI();
+        GM_registerMenuCommand(
+            "Check Processes SI List Updates",
+            checkSIListUpdates
+        );
+    }
+
+    function initializeUI() {
+        if (document.readyState === "loading") {
+            document.addEventListener(
+                "DOMContentLoaded",
+                createUI,
+                { once: true }
+            );
+        } else {
+            createUI();
+        }
+    }
+
+    // =========================================================
+    // API key
+    // =========================================================
+
+    function setApiKey() {
+        const newKey = prompt(
+            "Please enter your DeepSeek API Key:"
+        );
+
+        if (!newKey || !newKey.trim()) {
+            return;
+        }
+
+        GM_setValue(
+            API_KEY_STORAGE,
+            newKey.trim()
+        );
+
+        GM_setValue(
+            API_KEY_TIME_STORAGE,
+            String(Date.now())
+        );
+
+        alert(
+            "DeepSeek API Key saved for 7 days in this browser."
+        );
+    }
 
     function getApiKey() {
-        let apiKey = GM_getValue(API_KEY_STORAGE, "");
-        let apiKeyTime = Number(GM_getValue(API_KEY_TIME_STORAGE, "0"));
+        let apiKey =
+            GM_getValue(API_KEY_STORAGE, "");
+
+        const apiKeyTime =
+            Number(
+                GM_getValue(
+                    API_KEY_TIME_STORAGE,
+                    "0"
+                )
+            );
+
         const now = Date.now();
 
         if (
@@ -73,198 +137,216 @@
             apiKeyTime &&
             now - apiKeyTime >= API_KEY_VALID_MS
         ) {
-            GM_setValue(API_KEY_STORAGE, "");
-            GM_setValue(API_KEY_TIME_STORAGE, "0");
+            GM_setValue(
+                API_KEY_STORAGE,
+                ""
+            );
+
+            GM_setValue(
+                API_KEY_TIME_STORAGE,
+                "0"
+            );
         }
 
-        apiKey = prompt("Please enter your DeepSeek API Key:");
+        apiKey = prompt(
+            "Please enter your DeepSeek API Key:"
+        );
 
-        if (!apiKey) {
-            alert("DeepSeek API Key is required to use this function.");
+        if (!apiKey || !apiKey.trim()) {
+            alert(
+                "DeepSeek API Key is required to use this function."
+            );
+
             return null;
         }
 
-        GM_setValue(API_KEY_STORAGE, apiKey.trim());
-        GM_setValue(API_KEY_TIME_STORAGE, String(Date.now()));
+        GM_setValue(
+            API_KEY_STORAGE,
+            apiKey.trim()
+        );
+
+        GM_setValue(
+            API_KEY_TIME_STORAGE,
+            String(Date.now())
+        );
 
         return apiKey.trim();
     }
 
+    // =========================================================
+    // User interface
+    // =========================================================
+
     function createUI() {
-        const miniBtn = document.createElement("button");
-        miniBtn.textContent = "SI Title";
+        if (
+            document.getElementById(
+                UI_IDS.MINI_BUTTON
+            ) ||
+            document.getElementById(
+                UI_IDS.PANEL
+            )
+        ) {
+            return;
+        }
 
-        Object.assign(miniBtn.style, {
-            position: "fixed",
-            right: "18px",
-            bottom: "8px",
-            zIndex: "999999",
-            padding: "10px 14px",
-            border: "none",
-            borderRadius: "20px",
-            background: "#1677ff",
-            color: "white",
-            cursor: "move",
-            fontSize: "13px",
-            fontWeight: "600",
-            boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
-        });
+        if (!document.body) {
+            setTimeout(createUI, 300);
+            return;
+        }
 
-        const panel = document.createElement("div");
+        injectStyles();
 
-        Object.assign(panel.style, {
-            position: "fixed",
-            right: "18px",
-            bottom: "8px",
-            width: "400px",
-            maxHeight: "88vh",
-            zIndex: "999999",
-            background: "#ffffff",
-            border: "1px solid #ccc",
-            borderRadius: "12px",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-            fontFamily: "Arial, sans-serif",
-            overflow: "hidden",
-            display: "none"
-        });
+        const miniButton =
+            document.createElement("button");
+
+        miniButton.id = UI_IDS.MINI_BUTTON;
+        miniButton.textContent = "SI Title";
+        miniButton.type = "button";
+
+        Object.assign(
+            miniButton.style,
+            {
+                position: "fixed",
+                right: "18px",
+                bottom: "8px",
+                zIndex: "2147483647",
+                padding: "10px 14px",
+                border: "none",
+                borderRadius: "20px",
+                background: "#1677ff",
+                color: "#ffffff",
+                cursor: "move",
+                fontSize: "13px",
+                fontWeight: "600",
+                fontFamily:
+                    "Arial, sans-serif",
+                boxShadow:
+                    "0 3px 12px rgba(0,0,0,0.25)"
+            }
+        );
+
+        const panel =
+            document.createElement("div");
+
+        panel.id = UI_IDS.PANEL;
+
+        Object.assign(
+            panel.style,
+            {
+                position: "fixed",
+                right: "18px",
+                bottom: "8px",
+                width: "400px",
+                maxHeight: "88vh",
+                zIndex: "2147483647",
+                background: "#ffffff",
+                border: "1px solid #cccccc",
+                borderRadius: "12px",
+                boxShadow:
+                    "0 4px 16px rgba(0,0,0,0.18)",
+                fontFamily:
+                    "Arial, sans-serif",
+                overflow: "hidden",
+                display: "none"
+            }
+        );
 
         panel.innerHTML = `
-            <div
-                id="si-panel-drag-handle"
-                style="
-                    background:#1677ff;
-                    color:white;
-                    padding:10px 12px;
-                    font-weight:700;
-                    display:flex;
-                    justify-content:space-between;
-                    align-items:center;
-                    cursor:move;
-                "
-            >
+            <div id="${UI_IDS.DRAG_HANDLE}" class="processes-si-header">
                 <span>Processes SI Matcher</span>
 
                 <button
-                    id="si-minimize"
-                    style="
-                        border:none;
-                        background:white;
-                        color:#1677ff;
-                        border-radius:6px;
-                        cursor:pointer;
-                        font-weight:700;
-                    "
+                    id="${UI_IDS.MINIMIZE}"
+                    type="button"
+                    class="processes-si-minimize"
                 >
                     −
                 </button>
             </div>
 
-            <div
-                style="
-                    padding:12px;
-                    max-height:calc(88vh - 44px);
-                    overflow-y:auto;
-                "
-            >
-                <button id="si-match-btn" class="si-btn">
+            <div class="processes-si-body">
+                <button
+                    id="processes-si-match-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Match / Generate SI
                 </button>
 
-                <button id="si-search-keyword-btn" class="si-btn">
+                <button
+                    id="processes-si-query-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Generate Scilit Query + Keywords
                 </button>
 
-                <button id="refresh-si-list-btn" class="si-btn">
+                <button
+                    id="processes-si-refresh-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Refresh SI List
                 </button>
 
-                <button id="check-si-update-btn" class="si-btn">
+                <button
+                    id="processes-si-check-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Check SI List Updates
                 </button>
 
-                <button id="copy-si-output-btn" class="si-btn">
+                <button
+                    id="processes-si-copy-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Copy Result
                 </button>
 
-                <button id="reset-api-key-btn" class="si-btn">
+                <button
+                    id="processes-si-api-button"
+                    type="button"
+                    class="processes-si-button"
+                >
                     Set / Reset API Key
                 </button>
 
-                <div
-                    id="si-status"
-                    style="
-                        margin:8px 0;
-                        font-size:12px;
-                        color:#666;
-                    "
-                >
+                <div id="${UI_IDS.STATUS}" class="processes-si-status">
                     SI list: checking...
                 </div>
 
                 <textarea
-                    id="si-output"
-                    style="
-                        width:100%;
-                        height:300px;
-                        border:1px solid #ccc;
-                        border-radius:8px;
-                        padding:8px;
-                        font-size:12px;
-                        resize:vertical;
-                        box-sizing:border-box;
-                    "
+                    id="${UI_IDS.OUTPUT}"
+                    class="processes-si-output"
+                    placeholder="The generated result will appear here..."
                 ></textarea>
 
-                <div
-                    style="
-                        margin-top:12px;
-                        padding-top:10px;
-                        border-top:1px solid #eee;
-                    "
-                >
-                    <div
-                        style="
-                            font-size:13px;
-                            font-weight:700;
-                            color:#333;
-                            margin-bottom:6px;
-                        "
-                    >
+                <div class="processes-si-cleaner-section">
+                    <div class="processes-si-cleaner-title">
                         Text Cleaner: remove line breaks
                     </div>
 
                     <textarea
-                        id="si-cleaner-input"
-                        placeholder="Paste text here, then click Convert to One Paragraph..."
-                        style="
-                            width:100%;
-                            height:95px;
-                            border:1px solid #ccc;
-                            border-radius:8px;
-                            padding:8px;
-                            font-size:12px;
-                            resize:vertical;
-                            box-sizing:border-box;
-                        "
+                        id="${UI_IDS.CLEANER_INPUT}"
+                        class="processes-si-cleaner-input"
+                        placeholder="Paste text here, then click Convert + Copy..."
                     ></textarea>
 
-                    <div
-                        style="
-                            display:flex;
-                            gap:6px;
-                            margin-top:6px;
-                        "
-                    >
+                    <div class="processes-si-cleaner-buttons">
                         <button
-                            id="convert-cleaner-btn"
-                            class="si-small-btn"
+                            id="processes-si-convert-button"
+                            type="button"
+                            class="processes-si-small-button"
                         >
                             Convert + Copy
                         </button>
 
                         <button
-                            id="clear-cleaner-btn"
-                            class="si-small-btn"
+                            id="processes-si-clear-button"
+                            type="button"
+                            class="processes-si-small-button"
                         >
                             Clear
                         </button>
@@ -273,13 +355,73 @@
             </div>
         `;
 
-        document.body.appendChild(miniBtn);
+        document.body.appendChild(miniButton);
         document.body.appendChild(panel);
 
-        const style = document.createElement("style");
+        bindUIEvents(
+            miniButton,
+            panel
+        );
+
+        makeDraggable(
+            miniButton,
+            miniButton
+        );
+
+        makeDraggable(
+            panel,
+            document.getElementById(
+                UI_IDS.DRAG_HANDLE
+            )
+        );
+
+        updateStatus();
+    }
+
+    function injectStyles() {
+        if (
+            document.getElementById(
+                "processes-si-style"
+            )
+        ) {
+            return;
+        }
+
+        const style =
+            document.createElement("style");
+
+        style.id = "processes-si-style";
 
         style.textContent = `
-            .si-btn {
+            .processes-si-header {
+                background: #1677ff;
+                color: #ffffff;
+                padding: 10px 12px;
+                font-weight: 700;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                cursor: move;
+            }
+
+            .processes-si-minimize {
+                border: none;
+                background: #ffffff;
+                color: #1677ff;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: 700;
+                min-width: 28px;
+                height: 24px;
+            }
+
+            .processes-si-body {
+                padding: 12px;
+                max-height: calc(88vh - 44px);
+                overflow-y: auto;
+            }
+
+            .processes-si-button {
                 width: 100%;
                 margin: 4px 0;
                 padding: 8px;
@@ -292,11 +434,64 @@
                 text-align: left;
             }
 
-            .si-btn:hover {
+            .processes-si-button:hover {
                 background: #d6e4ff;
             }
 
-            .si-small-btn {
+            .processes-si-button:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+            }
+
+            .processes-si-status {
+                margin: 8px 0;
+                font-size: 12px;
+                color: #666666;
+                overflow-wrap: anywhere;
+            }
+
+            .processes-si-output {
+                width: 100%;
+                height: 300px;
+                border: 1px solid #cccccc;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 12px;
+                resize: vertical;
+                box-sizing: border-box;
+            }
+
+            .processes-si-cleaner-section {
+                margin-top: 12px;
+                padding-top: 10px;
+                border-top: 1px solid #eeeeee;
+            }
+
+            .processes-si-cleaner-title {
+                font-size: 13px;
+                font-weight: 700;
+                color: #333333;
+                margin-bottom: 6px;
+            }
+
+            .processes-si-cleaner-input {
+                width: 100%;
+                height: 95px;
+                border: 1px solid #cccccc;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 12px;
+                resize: vertical;
+                box-sizing: border-box;
+            }
+
+            .processes-si-cleaner-buttons {
+                display: flex;
+                gap: 6px;
+                margin-top: 6px;
+            }
+
+            .processes-si-small-button {
                 flex: 1;
                 padding: 7px;
                 border: none;
@@ -307,92 +502,161 @@
                 font-size: 12px;
             }
 
-            .si-small-btn:hover {
+            .processes-si-small-button:hover {
                 background: #d6e4ff;
             }
         `;
 
-        document.head.appendChild(style);
-
-        makeDraggable(miniBtn, miniBtn);
-
-        makeDraggable(
-            panel,
-            document.getElementById("si-panel-drag-handle")
-        );
-
-        miniBtn.onclick = () => {
-            if (miniBtn.dataset.dragged === "true") {
-                miniBtn.dataset.dragged = "false";
-                return;
-            }
-
-            miniBtn.style.display = "none";
-            panel.style.display = "block";
-            updateStatus();
-        };
-
-        document.getElementById("si-minimize").onclick = () => {
-            panel.style.display = "none";
-            miniBtn.style.display = "block";
-        };
-
-        document.getElementById(
-            "refresh-si-list-btn"
-        ).onclick = refreshSIList;
-
-        document.getElementById(
-            "check-si-update-btn"
-        ).onclick = checkSIListUpdates;
-
-        document.getElementById(
-            "si-match-btn"
-        ).onclick = matchSI;
-
-        document.getElementById(
-            "si-search-keyword-btn"
-        ).onclick = generateSearchQueryAndKeywords;
-
-        document.getElementById(
-            "copy-si-output-btn"
-        ).onclick = copyOutput;
-
-        document.getElementById(
-            "convert-cleaner-btn"
-        ).onclick = convertCleanerText;
-
-        document.getElementById(
-            "clear-cleaner-btn"
-        ).onclick = clearCleanerText;
-
-        document.getElementById(
-            "reset-api-key-btn"
-        ).onclick = () => {
-            const newKey = prompt(
-                "Please enter your DeepSeek API Key:"
-            );
-
-            if (!newKey) return;
-
-            GM_setValue(
-                API_KEY_STORAGE,
-                newKey.trim()
-            );
-
-            GM_setValue(
-                API_KEY_TIME_STORAGE,
-                String(Date.now())
-            );
-
-            alert(
-                "DeepSeek API Key saved for 7 days in this browser."
-            );
-        };
-
-        updateStatus();
+        (
+            document.head ||
+            document.documentElement
+        ).appendChild(style);
     }
 
-    function makeDraggable(box, handle) {
+    function bindUIEvents(
+        miniButton,
+        panel
+    ) {
+        miniButton.addEventListener(
+            "click",
+            function () {
+                if (
+                    miniButton.dataset.dragged ===
+                    "true"
+                ) {
+                    miniButton.dataset.dragged =
+                        "false";
+
+                    return;
+                }
+
+                miniButton.style.display =
+                    "none";
+
+                panel.style.display =
+                    "block";
+
+                keepElementInViewport(
+                    panel
+                );
+
+                updateStatus();
+            }
+        );
+
+        document
+            .getElementById(
+                UI_IDS.MINIMIZE
+            )
+            .addEventListener(
+                "click",
+                function () {
+                    panel.style.display =
+                        "none";
+
+                    miniButton.style.display =
+                        "block";
+
+                    keepElementInViewport(
+                        miniButton
+                    );
+                }
+            );
+
+        document
+            .getElementById(
+                "processes-si-match-button"
+            )
+            .addEventListener(
+                "click",
+                matchSI
+            );
+
+        document
+            .getElementById(
+                "processes-si-query-button"
+            )
+            .addEventListener(
+                "click",
+                generateSearchQueryAndKeywords
+            );
+
+        document
+            .getElementById(
+                "processes-si-refresh-button"
+            )
+            .addEventListener(
+                "click",
+                refreshSIList
+            );
+
+        document
+            .getElementById(
+                "processes-si-check-button"
+            )
+            .addEventListener(
+                "click",
+                checkSIListUpdates
+            );
+
+        document
+            .getElementById(
+                "processes-si-copy-button"
+            )
+            .addEventListener(
+                "click",
+                copyOutput
+            );
+
+        document
+            .getElementById(
+                "processes-si-api-button"
+            )
+            .addEventListener(
+                "click",
+                setApiKey
+            );
+
+        document
+            .getElementById(
+                "processes-si-convert-button"
+            )
+            .addEventListener(
+                "click",
+                convertCleanerText
+            );
+
+        document
+            .getElementById(
+                "processes-si-clear-button"
+            )
+            .addEventListener(
+                "click",
+                clearCleanerText
+            );
+
+        window.addEventListener(
+            "resize",
+            function () {
+                keepElementInViewport(
+                    miniButton
+                );
+
+                keepElementInViewport(
+                    panel
+                );
+            }
+        );
+    }
+
+    function makeDraggable(
+        box,
+        handle
+    ) {
+        if (!box || !handle) {
+            return;
+        }
+
         let isDragging = false;
         let moved = false;
         let offsetX = 0;
@@ -400,382 +664,471 @@
         let startX = 0;
         let startY = 0;
 
-        if (!box || !handle) return;
-
         handle.addEventListener(
             "mousedown",
-            function (e) {
+            function (event) {
                 if (
-                    e.target.tagName.toLowerCase() === "button" &&
-                    handle !== box
+                    handle !== box &&
+                    event.target.closest("button")
                 ) {
                     return;
                 }
 
                 isDragging = true;
                 moved = false;
-                startX = e.clientX;
-                startY = e.clientY;
 
-                const rect = box.getBoundingClientRect();
+                startX = event.clientX;
+                startY = event.clientY;
 
-                offsetX = e.clientX - rect.left;
-                offsetY = e.clientY - rect.top;
+                const rect =
+                    box.getBoundingClientRect();
 
-                box.style.left = rect.left + "px";
-                box.style.top = rect.top + "px";
+                offsetX =
+                    event.clientX - rect.left;
+
+                offsetY =
+                    event.clientY - rect.top;
+
+                box.style.left =
+                    rect.left + "px";
+
+                box.style.top =
+                    rect.top + "px";
+
                 box.style.right = "auto";
                 box.style.bottom = "auto";
                 box.style.transform = "none";
 
-                document.body.style.userSelect = "none";
-                e.preventDefault();
+                document.body.style.userSelect =
+                    "none";
+
+                event.preventDefault();
             }
         );
 
         document.addEventListener(
             "mousemove",
-            function (e) {
-                if (!isDragging) return;
-
-                if (
-                    Math.abs(e.clientX - startX) > 3 ||
-                    Math.abs(e.clientY - startY) > 3
-                ) {
-                    moved = true;
-                    box.dataset.dragged = "true";
+            function (event) {
+                if (!isDragging) {
+                    return;
                 }
 
-                let newLeft = e.clientX - offsetX;
-                let newTop = e.clientY - offsetY;
+                if (
+                    Math.abs(
+                        event.clientX - startX
+                    ) > 3 ||
+                    Math.abs(
+                        event.clientY - startY
+                    ) > 3
+                ) {
+                    moved = true;
+                    box.dataset.dragged =
+                        "true";
+                }
 
-                const boxRect = box.getBoundingClientRect();
+                const rect =
+                    box.getBoundingClientRect();
+
                 const maxLeft =
-                    window.innerWidth - boxRect.width;
+                    Math.max(
+                        0,
+                        window.innerWidth -
+                        rect.width
+                    );
+
                 const maxTop =
-                    window.innerHeight - boxRect.height;
+                    Math.max(
+                        0,
+                        window.innerHeight -
+                        rect.height
+                    );
 
-                newLeft = Math.max(
-                    0,
-                    Math.min(newLeft, maxLeft)
-                );
+                let newLeft =
+                    event.clientX -
+                    offsetX;
 
-                newTop = Math.max(
-                    0,
-                    Math.min(newTop, maxTop)
-                );
+                let newTop =
+                    event.clientY -
+                    offsetY;
 
-                box.style.left = newLeft + "px";
-                box.style.top = newTop + "px";
+                newLeft =
+                    Math.max(
+                        0,
+                        Math.min(
+                            newLeft,
+                            maxLeft
+                        )
+                    );
+
+                newTop =
+                    Math.max(
+                        0,
+                        Math.min(
+                            newTop,
+                            maxTop
+                        )
+                    );
+
+                box.style.left =
+                    newLeft + "px";
+
+                box.style.top =
+                    newTop + "px";
             }
         );
 
         document.addEventListener(
             "mouseup",
             function () {
-                if (!isDragging) return;
+                if (!isDragging) {
+                    return;
+                }
 
                 isDragging = false;
-                document.body.style.userSelect = "";
+                document.body.style.userSelect =
+                    "";
 
                 if (!moved) {
-                    box.dataset.dragged = "false";
+                    box.dataset.dragged =
+                        "false";
                 } else {
-                    setTimeout(() => {
-                        box.dataset.dragged = "false";
-                    }, 150);
+                    setTimeout(
+                        function () {
+                            box.dataset.dragged =
+                                "false";
+                        },
+                        180
+                    );
                 }
             }
         );
     }
 
-    function updateStatus() {
-        const cached = GM_getValue(STORAGE_KEY, "");
-        const cacheTime = GM_getValue(
-            CACHE_TIME_KEY,
-            ""
+    function keepElementInViewport(
+        element
+    ) {
+        if (
+            !element ||
+            element.style.display === "none"
+        ) {
+            return;
+        }
+
+        const rect =
+            element.getBoundingClientRect();
+
+        let left = rect.left;
+        let top = rect.top;
+
+        if (rect.right > window.innerWidth) {
+            left =
+                Math.max(
+                    0,
+                    window.innerWidth -
+                    rect.width
+                );
+        }
+
+        if (
+            rect.bottom >
+            window.innerHeight
+        ) {
+            top =
+                Math.max(
+                    0,
+                    window.innerHeight -
+                    rect.height
+                );
+        }
+
+        if (rect.left < 0) {
+            left = 0;
+        }
+
+        if (rect.top < 0) {
+            top = 0;
+        }
+
+        if (
+            left !== rect.left ||
+            top !== rect.top
+        ) {
+            element.style.left =
+                left + "px";
+
+            element.style.top =
+                top + "px";
+
+            element.style.right =
+                "auto";
+
+            element.style.bottom =
+                "auto";
+        }
+    }
+
+    // =========================================================
+    // Status and output helpers
+    // =========================================================
+
+    function getOutputBox() {
+        return document.getElementById(
+            UI_IDS.OUTPUT
         );
+    }
 
+    function setOutput(text) {
+        const outputBox =
+            getOutputBox();
+
+        if (outputBox) {
+            outputBox.value =
+                text || "";
+        }
+    }
+
+    function updateStatus() {
         const status =
-            document.getElementById("si-status");
+            document.getElementById(
+                UI_IDS.STATUS
+            );
 
-        if (!status) return;
+        if (!status) {
+            return;
+        }
 
-        if (cached) {
-            const count = cached
-                .split(/\n+/)
-                .filter(x => x.trim())
+        const cached =
+            GM_getValue(
+                STORAGE_KEY,
+                ""
+            );
+
+        const cacheTime =
+            GM_getValue(
+                CACHE_TIME_KEY,
+                ""
+            );
+
+        if (!cached) {
+            status.textContent =
+                "SI list: not loaded. Click Refresh SI List once.";
+
+            return;
+        }
+
+        const count =
+            cached
+                .split(/\r?\n+/)
+                .map(
+                    item => item.trim()
+                )
+                .filter(Boolean)
                 .length;
 
-            const time = cacheTime
+        const time =
+            cacheTime
                 ? new Date(
                     Number(cacheTime)
                 ).toLocaleString()
                 : "unknown time";
 
-            status.textContent =
-                `SI list: ${count} titles cached, updated at ${time}`;
-        } else {
-            status.textContent =
-                "SI list: not loaded. Click Refresh SI List once.";
-        }
+        status.textContent =
+            `SI list: ${count} titles cached, updated at ${time}`;
     }
 
+    // =========================================================
+    // SI list
+    // =========================================================
+
     function refreshSIList() {
-        const outputBox =
-            document.getElementById("si-output");
+        setOutput(
+            "Fetching SI list from Gist..."
+        );
 
-        if (outputBox) {
-            outputBox.value =
-                "Fetching SI list from Gist...";
-        }
+        fetchSIList(
+            function (titles) {
+                saveSIList(titles);
 
-        GM_xmlhttpRequest({
-            method: "GET",
-            url: SI_LIST_URL,
-
-            onload: function (response) {
-                const text =
-                    response.responseText || "";
-
-                const titles =
-                    extractSITitles(text);
-
-                if (
-                    !titles ||
-                    titles.length < 5
-                ) {
-                    if (outputBox) {
-                        outputBox.value =
-                            "Failed to extract SI titles from the Gist link.\n\n" +
-                            "Please check whether the Gist raw link is accessible " +
-                            "and contains one SI title per line.";
-                    } else {
-                        alert(
-                            "Failed to extract SI titles from the Gist link."
-                        );
-                    }
-
-                    return;
-                }
-
-                const cleanList = [
-                    ...new Set(titles)
-                ].join("\n");
-
-                const hash =
-                    simpleHash(cleanList);
-
-                GM_setValue(
-                    STORAGE_KEY,
-                    cleanList
+                setOutput(
+                    "SI list updated successfully.\n\n" +
+                    `Loaded ${titles.length} titles.`
                 );
-
-                GM_setValue(
-                    CACHE_TIME_KEY,
-                    String(Date.now())
-                );
-
-                GM_setValue(
-                    SI_HASH_KEY,
-                    hash
-                );
-
-                if (outputBox) {
-                    outputBox.value =
-                        `SI list updated successfully.\n\n` +
-                        `Loaded ${titles.length} titles.`;
-                } else {
-                    alert(
-                        `SI list updated successfully. ` +
-                        `Loaded ${titles.length} titles.`
-                    );
-                }
 
                 updateStatus();
             },
-
-            onerror: function () {
-                if (outputBox) {
-                    outputBox.value =
-                        "Failed to fetch SI list. " +
-                        "Please check the Gist link or network.";
-                } else {
-                    alert(
-                        "Failed to fetch SI list. " +
-                        "Please check the Gist link or network."
-                    );
-                }
+            function (message) {
+                setOutput(message);
             }
-        });
+        );
     }
 
     function checkSIListUpdates() {
-        const outputBox =
-            document.getElementById("si-output");
+        setOutput(
+            "Checking whether SI list has updates..."
+        );
 
-        if (outputBox) {
-            outputBox.value =
-                "Checking whether SI list has updates...";
-        }
-
-        GM_xmlhttpRequest({
-            method: "GET",
-            url: SI_LIST_URL,
-
-            onload: function (response) {
-                const text =
-                    response.responseText || "";
-
-                const titles =
-                    extractSITitles(text);
-
-                if (
-                    !titles ||
-                    titles.length < 5
-                ) {
-                    if (outputBox) {
-                        outputBox.value =
-                            "Failed to check SI list updates.\n\n" +
-                            "Please check whether the Gist raw link is accessible " +
-                            "and contains one SI title per line.";
-                    } else {
-                        alert(
-                            "Failed to check SI list updates."
-                        );
-                    }
-
-                    return;
-                }
-
-                const cleanList = [
-                    ...new Set(titles)
-                ].join("\n");
+        fetchSIList(
+            function (titles) {
+                const cleanList =
+                    [...new Set(titles)]
+                        .join("\n");
 
                 const newHash =
                     simpleHash(cleanList);
 
                 const oldHash =
-                    GM_getValue(SI_HASH_KEY, "");
+                    GM_getValue(
+                        SI_HASH_KEY,
+                        ""
+                    );
 
                 const oldList =
-                    GM_getValue(STORAGE_KEY, "");
+                    GM_getValue(
+                        STORAGE_KEY,
+                        ""
+                    );
 
                 if (!oldList) {
-                    GM_setValue(
-                        STORAGE_KEY,
-                        cleanList
-                    );
+                    saveSIList(titles);
 
-                    GM_setValue(
-                        CACHE_TIME_KEY,
-                        String(Date.now())
+                    setOutput(
+                        "No previous SI list cache found.\n\n" +
+                        "SI list has now been loaded.\n" +
+                        `Loaded ${titles.length} titles.`
                     );
-
-                    GM_setValue(
-                        SI_HASH_KEY,
-                        newHash
-                    );
-
-                    if (outputBox) {
-                        outputBox.value =
-                            "No previous SI list cache found.\n\n" +
-                            "SI list has been loaded successfully.\n" +
-                            `Loaded ${titles.length} titles.`;
-                    } else {
-                        alert(
-                            "No previous SI list cache found. " +
-                            `Loaded ${titles.length} titles.`
-                        );
-                    }
 
                     updateStatus();
+
                     return;
                 }
 
                 if (newHash === oldHash) {
-                    if (outputBox) {
-                        outputBox.value =
-                            "No update detected. " +
-                            "The cached SI list is still up to date.";
-                    } else {
-                        alert(
-                            "No update detected. " +
-                            "The cached SI list is still up to date."
-                        );
-                    }
+                    setOutput(
+                        "No update detected. The cached SI list is still up to date."
+                    );
 
                     updateStatus();
+
                     return;
                 }
 
-                GM_setValue(
-                    STORAGE_KEY,
-                    cleanList
-                );
+                saveSIList(titles);
 
-                GM_setValue(
-                    CACHE_TIME_KEY,
-                    String(Date.now())
+                setOutput(
+                    "SI list update detected and refreshed successfully.\n\n" +
+                    `Loaded ${titles.length} titles.`
                 );
-
-                GM_setValue(
-                    SI_HASH_KEY,
-                    newHash
-                );
-
-                if (outputBox) {
-                    outputBox.value =
-                        "SI list update detected and refreshed successfully.\n\n" +
-                        `Loaded ${titles.length} titles.`;
-                } else {
-                    alert(
-                        "SI list update detected and refreshed successfully. " +
-                        `Loaded ${titles.length} titles.`
-                    );
-                }
 
                 updateStatus();
             },
+            function (message) {
+                setOutput(message);
+            }
+        );
+    }
+
+    function fetchSIList(
+        onSuccess,
+        onFailure
+    ) {
+        GM_xmlhttpRequest({
+            method: "GET",
+            url: SI_LIST_URL,
+
+            onload: function (response) {
+                const text =
+                    response.responseText ||
+                    "";
+
+                const titles =
+                    extractSITitles(text);
+
+                if (
+                    !titles ||
+                    titles.length < 5
+                ) {
+                    onFailure(
+                        "Failed to extract SI titles from the Gist link.\n\n" +
+                        "Please confirm that the raw Gist link is accessible and contains one SI title per line."
+                    );
+
+                    return;
+                }
+
+                onSuccess(titles);
+            },
 
             onerror: function () {
-                if (outputBox) {
-                    outputBox.value =
-                        "Failed to check SI list updates. " +
-                        "Please check the Gist link or network.";
-                } else {
-                    alert(
-                        "Failed to check SI list updates. " +
-                        "Please check the Gist link or network."
-                    );
-                }
+                onFailure(
+                    "Failed to fetch the SI list. Please check the network or Gist link."
+                );
+            },
+
+            ontimeout: function () {
+                onFailure(
+                    "The SI list request timed out. Please try again."
+                );
             }
         });
     }
 
-    function extractSITitles(rawText) {
-        return rawText
+    function saveSIList(titles) {
+        const cleanList =
+            [...new Set(titles)]
+                .join("\n");
+
+        GM_setValue(
+            STORAGE_KEY,
+            cleanList
+        );
+
+        GM_setValue(
+            CACHE_TIME_KEY,
+            String(Date.now())
+        );
+
+        GM_setValue(
+            SI_HASH_KEY,
+            simpleHash(cleanList)
+        );
+    }
+
+    function extractSITitles(
+        rawText
+    ) {
+        return String(rawText || "")
             .split(/\r?\n/)
-            .map(x => x.trim())
-            .filter(x => x.length > 5)
-            .filter(x => !/^SI Title$/i.test(x));
+            .map(
+                item => item.trim()
+            )
+            .filter(
+                item => item.length > 5
+            )
+            .filter(
+                item =>
+                    !/^SI Title$/i.test(
+                        item
+                    )
+            );
     }
 
     function simpleHash(text) {
         let hash = 0;
 
-        if (!text) {
-            return String(hash);
-        }
+        const value =
+            String(text || "");
 
         for (
-            let i = 0;
-            i < text.length;
-            i++
+            let index = 0;
+            index < value.length;
+            index++
         ) {
             hash =
-                ((hash << 5) - hash) +
-                text.charCodeAt(i);
+                (
+                    (hash << 5) -
+                    hash
+                ) +
+                value.charCodeAt(index);
 
             hash |= 0;
         }
@@ -783,26 +1136,27 @@
         return String(hash);
     }
 
+    // =========================================================
+    // Scholar and SI matching
+    // =========================================================
+
     function matchSI() {
         const selectedText =
-            window.getSelection()
-                .toString()
-                .trim();
-
-        const outputBox =
-            document.getElementById("si-output");
+            getSelectedText();
 
         if (!selectedText) {
             alert(
-                "Please select scholar publications, research interests, " +
-                "funding information, or homepage text first."
+                "Please select scholar publications, research interests, funding information, or homepage text first."
             );
 
             return;
         }
 
         const existingSI =
-            GM_getValue(STORAGE_KEY, "");
+            GM_getValue(
+                STORAGE_KEY,
+                ""
+            );
 
         if (!existingSI) {
             alert(
@@ -812,50 +1166,39 @@
             return;
         }
 
-        const apiKey = getApiKey();
+        const apiKey =
+            getApiKey();
 
-        if (!apiKey) return;
+        if (!apiKey) {
+            return;
+        }
 
-        outputBox.value =
-            "Analyzing scholar fields, grouping publications, " +
-            "and matching Special Issues...";
+        setOutput(
+            "Analyzing scholar fields and matching Special Issues..."
+        );
 
         const systemPrompt = `
 You are a senior Section Managing Editor of the MDPI journal Processes.
 
-Your task is to quickly evaluate a scholar's representative publications, determine the scholar's main academic field, judge whether the scholar fits Processes, and recommend the most relevant existing Special Issues.
+Your task is to evaluate a scholar's representative publications or research information, determine the scholar's broad first-level academic field, judge whether the scholar fits Processes, and recommend the most relevant existing Special Issues.
 
 Keep the analysis concise and practical.
 
-The selected information may contain approximately 5–8 representative publications, research interests, keywords, abstracts, funding information, or homepage text.
+CORE RULES
 
-==================================================
-CORE ANALYSIS PRINCIPLE
-==================================================
+1. Do not combine all publications using strict AND logic.
+2. Do not require one Special Issue to cover every publication, method, material, and application.
+3. Determine one broad first-level academic field.
+4. Identify the research direction shared by at least half of the selected publications.
+5. Use this majority direction as the main basis for matching.
+6. Treat specific materials, methods, algorithms, and applications as supporting information.
+7. Recommend only Special Issues that reasonably cover the scholar's main and stable research direction.
 
-Do not combine all publications using strict AND logic.
-
-Do not require one Special Issue to cover every selected publication, method, material, and application.
-
-Instead:
-
-1. Determine the scholar's broad first-level academic field.
-2. Identify the research direction shared by at least half of the selected publications.
-3. Use this majority direction as the main basis for matching existing Special Issues.
-4. Treat specific materials, methods, algorithms, and applications as supporting information.
-5. Recommend existing Special Issues that cover the main field or majority research direction.
-
-A suitable Special Issue does not need to cover all publications.
-
-It may receive a high matching score if it reasonably covers the scholar's main and stable research direction.
-
-==================================================
 PROCESSES SCOPE
-==================================================
 
 Processes is an engineering- and process-oriented journal.
 
-Relevant areas include, but are not limited to:
+Relevant areas include:
 
 - Chemical and Process Engineering
 - Process Systems Engineering
@@ -878,7 +1221,7 @@ Relevant areas include, but are not limited to:
 - Supply Chain and Logistics Processes
 - CFD and Multiphase Flow
 
-Materials, biological, environmental, energy, and AI research should have a clear process, engineering, modeling, optimization, control, manufacturing, or industrial application connection.
+Materials, biological, environmental, energy, and AI studies need a clear process, engineering, modeling, optimization, control, manufacturing, or industrial application connection.
 
 Usually unsuitable areas include:
 
@@ -889,15 +1232,11 @@ Usually unsuitable areas include:
 - Pure theoretical physics
 - Pure mathematics
 - Basic materials characterization without process or engineering relevance
-- General AI algorithm development without an engineering process context
+- General AI algorithm development without engineering process context
 
-==================================================
-FIRST-LEVEL FIELD CLASSIFICATION
-==================================================
+FIRST-LEVEL FIELD
 
-Determine one broad first-level academic field that best describes the scholar.
-
-Examples include:
+Use a broad academic field, for example:
 
 - Fluid Mechanics and Transport Phenomena
 - Chemical and Process Engineering
@@ -914,165 +1253,73 @@ Examples include:
 - Safety and Risk Engineering
 - Supply Chain and Logistics Engineering
 
-Do not use specific methods or research objects as the first-level field.
+Do not use an individual method, material, algorithm, or research object as the first-level field.
 
-For example, the following are not first-level fields:
-
-- Artificial Neural Networks
-- Deep Neural Networks
-- Response Surface Methodology
-- Magnetohydrodynamics
-- Nanofluids
-- Carreau Fluid
-- Roll Coating
-- Calendering
-
-These should be treated as specific methods, mechanisms, materials, or applications within a broader academic field.
-
-==================================================
 MAJORITY DIRECTION
-==================================================
 
 Identify the research direction shared by at least half of the selected publications.
 
-For example, if 5 out of 8 publications study non-Newtonian flow, transport phenomena, heat transfer, coating processes, or related numerical modeling, the majority direction may be summarized as:
+Closely related topics may be summarized at a higher conceptual level.
 
-Fluid Flow and Heat Transfer in Industrial Processes
+CFD, ANN, DNN, RSM, optimization, numerical simulation, and similar tools should normally support the main direction rather than replace it.
 
-or:
-
-Complex Fluid Dynamics and Transport Phenomena
-
-Do not require all publications to belong to exactly the same narrow topic.
-
-Closely related research topics may be summarized at a higher conceptual level.
-
-Methods such as ANN, DNN, RSM, CFD, numerical simulation, or optimization should normally support the majority direction rather than replace it.
-
-==================================================
 EXISTING SPECIAL ISSUE MATCHING
-==================================================
 
-Recommend 3–4 existing Special Issues with the highest matching scores.
+Recommend 3–4 existing Special Issues with the highest meaningful relevance.
 
-Do not recommend more than four.
-
-Do not recommend irrelevant titles merely to reach four. If only two or three titles have meaningful relevance, output only those titles.
+Do not recommend irrelevant titles merely to reach four.
 
 Match primarily according to:
 
 1. First-level academic field;
-2. Research direction shared by at least half of the publications;
+2. Majority research direction;
 3. Core process or engineering problem;
 4. Application scenario;
 5. Modeling, simulation, optimization, control, or experimental methods.
 
 Do not rely only on literal keyword overlap.
 
-For example, a Special Issue containing the term "fluid dynamics" should not receive a high score if it focuses on an unrelated application area.
-
-A Special Issue may receive more than 80% matching even if it does not cover every selected publication.
-
-==================================================
-MATCHING SCORE
-==================================================
-
-Use the following scoring principles:
+MATCHING SCORES
 
 85%–100%:
-The first-level academic field is highly consistent, and the Special Issue directly covers the majority research direction or a major stable direction of the scholar.
+The first-level field is highly consistent and the Special Issue directly covers the majority direction.
 
 80%–84%:
-The first-level field is consistent and the majority direction is substantially covered, although the specific application or technical emphasis is slightly different.
+The first-level field is consistent and the majority direction is substantially covered, with only minor differences.
 
 65%–79%:
-The first-level field is related, but there are noticeable differences in research object, application scenario, or process type.
+The field is related, but there are noticeable differences in research object, application, or process type.
 
 50%–64%:
 Only some methods, mechanisms, or publications are relevant.
 
 Below 50%:
-Only broad words or superficial connections overlap.
+Only superficial words or broad concepts overlap.
 
-Do not artificially reduce the matching score because a Special Issue cannot cover all selected publications.
-
-==================================================
 NEW SPECIAL ISSUE GENERATION
-==================================================
 
-First examine all relevant existing Special Issues.
+If at least one existing Special Issue reaches 80%, recommend existing Special Issues and do not generate a new title.
 
-If at least one existing Special Issue reaches 80% matching:
-
-- recommend the existing Special Issues;
-- do not generate any new Special Issue title.
-
-Only if no existing Special Issue reaches 80%:
+Only when no existing Special Issue reaches 80%:
 
 - generate 1–2 new Special Issue titles;
-- keep the titles broader than the scholar's individual publications;
-- base the titles on the first-level field and majority research direction;
-- avoid combining every method, material, and application in one title.
+- make them broader than the scholar's individual publications;
+- base them on the first-level field and majority direction;
+- avoid combining every method, material, and application into one title.
 
-The new Special Issue title should be suitable for broader invitations and should attract researchers beyond this individual scholar.
+Do not invent unsupported fashionable methods such as digital twins, generative AI, large language models, or reinforcement learning unless clearly supported by the selected information.
 
-Prefer broad but meaningful title concepts such as:
+OUTPUT LANGUAGE
 
-- Fluid Flow and Heat Transfer in Industrial Processes
-- Transport Phenomena in Complex Fluid Systems
-- Modeling and Optimization of Thermal and Fluid Processes
-- Advanced Computational Process Engineering
-- Intelligent Modeling and Optimization of Industrial Processes
-- Advanced Transport Processes in Manufacturing
-- Sustainable Thermal and Fluid Engineering Processes
+Write in Chinese.
 
-Normally do not place the following narrow details in the title:
+Keep existing Special Issue titles in English.
 
-- individual constitutive models;
-- individual algorithms;
-- individual nanoparticles or materials;
-- a single equipment type;
-- microorganisms;
-- a single local case;
-- narrow combinations such as MHD + nanofluid + coating + ANN.
+For newly generated titles, provide English and Chinese.
 
-These details may appear in the keywords instead.
+Keep the result concise.
 
-Do not invent unsupported methods such as:
-
-- Physics-Informed Neural Networks
-- Digital Twins
-- Reinforcement Learning
-- Generative AI
-- Large Language Models
-- Machine Vision
-
-unless directly supported by the selected information.
-
-==================================================
-OUTPUT LANGUAGE AND STYLE
-==================================================
-
-Write the answer in Chinese.
-
-Keep existing Special Issue titles in their original English.
-
-Provide both English and Chinese titles only for newly generated Special Issues.
-
-Keep the response concise.
-
-Do not provide:
-
-- publication-by-publication analysis;
-- detailed publication grouping;
-- long tables;
-- lengthy methodological discussion;
-- unnecessary explanations;
-- repeated conclusions.
-
-==================================================
 OUTPUT FORMAT
-==================================================
 
 1. 一级学科与Scope判断
 
@@ -1103,7 +1350,7 @@ OUTPUT FORMAT
 
 推荐4
 
-Only include this item if it has meaningful relevance.
+Only include this item when it has meaningful relevance.
 
 3. 结论
 
@@ -1129,25 +1376,19 @@ Only output this section when no existing Special Issue reaches 80%.
 
 新题目2
 
-Only include this item when another genuinely distinct and useful option exists.
+Only include this item when a genuinely distinct second option exists.
 
-==================================================
 FINAL RULES
-==================================================
 
-- Do not treat all publications as one narrow combined topic.
-- Do not require one Special Issue to cover every publication.
-- Use the direction shared by at least half of the publications as the main matching basis.
-- Recommend 3–4 highest-matching existing Special Issues.
-- Do not generate new titles if any existing Special Issue reaches 80%.
-- Generate only 1–2 new titles when all existing Special Issues are below 80%.
-- New titles should be broader than individual publication topics.
-- Do not invent Special Issues that are absent from the provided existing list.
-- Do not fabricate research content not present in the selected information.
+- Do not require one Special Issue to cover all publications.
+- Use the direction shared by at least half of the publications.
+- Recommend only existing Special Issues from the provided list.
+- Do not fabricate research content.
+- Do not generate a new title when any existing Special Issue reaches 80%.
 `;
 
         const userPrompt = `
-Existing Processes SI title list:
+Existing Processes Special Issue title list:
 
 ${existingSI}
 
@@ -1159,35 +1400,59 @@ ${selectedText}
         callDeepSeek(
             systemPrompt,
             userPrompt,
-            outputBox,
             apiKey
         );
     }
 
+    // =========================================================
+    // Search query and keywords
+    // =========================================================
+
     function generateSearchQueryAndKeywords() {
         const selectedText =
-            window.getSelection()
-                .toString()
-                .trim();
-
-        const outputBox =
-            document.getElementById("si-output");
+            getSelectedText();
 
         if (!selectedText) {
             alert(
-                "Please select the Special Issue title, summary, keywords, " +
-                "GE interests, or scope text first."
+                "Please select the Special Issue title, summary, keywords, Guest Editor interests, or scope text first."
             );
 
             return;
         }
 
-        const apiKey = getApiKey();
+        const apiKey =
+            getApiKey();
 
-        if (!apiKey) return;
+        if (!apiKey) {
+            return;
+        }
 
-        outputBox.value =
-            "Generating Scilit search query and keyword list...";
+        setOutput(
+            "Generating Scilit search query and keyword list..."
+        );
+
+        const systemPrompt = `
+You are an expert in academic field classification, bibliographic database searching, Boolean query construction, Special Issue topic analysis, and potential-author discovery.
+
+Your task is to convert selected Special Issue webpage information into a practical literature search strategy.
+
+Do not merely copy keywords from the webpage.
+
+Do not generate a completely generic query based only on a broad first-level discipline.
+
+Instead:
+
+1. Identify the central research field of the Special Issue.
+2. Expand that field using established synonyms, spelling variants, major technical categories, and representative technologies.
+3. Use the Special Issue title, summary, topics, keywords, and Guest Editor interests to determine which branches and technologies are genuinely relevant.
+4. Exclude terms that belong to the broader field but clearly fall outside the actual Special Issue emphasis.
+
+The title normally provides the strongest signal.
+
+The summary, topics, keywords, and Guest Editor interests must also be considered as supporting evidence.
+
+Return only the requested formatted output.
+`;
 
         const userPrompt = `
 The following text is selected from a Special Issue webpage.
@@ -1200,156 +1465,129 @@ It may include:
 - Special Issue introduction or summary;
 - aims and scope;
 - suggested topics;
-- keywords;
+- webpage keywords;
 - submission information.
 
-Your task is to generate:
+Generate:
 
-1. A Boolean search query for Scilit, Scopus, or similar academic databases;
-2. A keyword list for screening exported literature records;
+1. A Boolean literature search query;
+2. A line-by-line keyword list for screening exported literature records;
 3. The same keyword list separated by Chinese semicolons.
 
 ==================================================
-STEP 1: IDENTIFY THE CORE FIELD
+CORE FIELD IDENTIFICATION
 ==================================================
 
 First identify:
 
 1. The central research field of the Special Issue;
 2. Its broader first-level academic field;
-3. The specific branches and technical emphases actually covered by the Special Issue.
+3. The technical branches and emphases actually covered by the Special Issue.
 
-The Special Issue title should normally receive the highest priority.
+Use the following priority:
 
-However, you must also carefully consider:
+1. Special Issue title;
+2. Special Issue summary and aims;
+3. Listed topics;
+4. Webpage keywords;
+5. Guest Editor research interests.
 
-- Guest Editor research interests;
-- Special Issue summary;
-- listed topics;
-- webpage keywords.
-
-These elements help determine the actual boundaries and emphasis of the Special Issue.
-
-Do not treat Guest Editor interests as irrelevant.
-
-Guest Editor interests may reveal important technical directions that are not fully expressed in the title.
-
-However, do not include a Guest Editor research topic when it is clearly unrelated to the Special Issue.
+Guest Editor interests must be considered, but only include them when they are relevant to the Special Issue.
 
 Ignore administrative information such as:
 
-- manuscript submission instructions;
+- submission instructions;
 - publication fees;
 - peer-review procedures;
-- journal publication frequency;
-- formatting and language requirements.
+- journal frequency;
+- formatting requirements;
+- English-editing statements.
 
 ==================================================
-STEP 2: BUILD A FIELD-BASED TERM POOL
+FIELD-BASED EXPANSION
 ==================================================
 
 After identifying the core field, expand it using professional academic knowledge.
 
-Consider the following categories:
+Consider:
 
-A. Core field names
+A. Standard field names
 
-Include the standard name of the research field.
+B. Widely used synonyms and spelling variants
 
-B. Synonyms and spelling variants
+C. Major recognized technical categories
 
-Include widely used alternative expressions and spelling variants.
+D. Representative or field-identifying technologies
 
-C. Major technical categories
+E. Technical branches clearly supported by the Special Issue webpage
 
-Include recognized technical categories belonging to the core field.
-
-D. Representative technologies
-
-Include technologies or methods that strongly indicate that a paper belongs to this field.
-
-E. Special-Issue-specific branches
-
-Use the webpage title, summary, topics, keywords, and Guest Editor interests to identify technical branches that are especially relevant to this Special Issue.
-
-F. Relevant materials, processes, characterization methods, properties, or applications
-
-Include these only when they represent a meaningful and sufficiently broad direction of the Special Issue.
+F. Important materials, processes, characterization methods, properties, or applications that represent a meaningful Special Issue direction
 
 Do not simply copy every noun phrase from the webpage.
 
-Do not include terms merely because they appear once.
+Do not include a term merely because it appears once.
 
-Give priority to concepts that are:
+Give priority to terms that are:
 
 - central to the title;
-- repeatedly emphasized in the summary or topic list;
+- repeatedly emphasized in the summary or topics;
 - supported by Guest Editor interests;
-- established technical terms in the field;
-- useful for identifying relevant papers and authors.
+- established terminology in the field;
+- useful for finding relevant papers and authors.
 
 ==================================================
-STEP 3: BALANCE FIELD COVERAGE AND SI RELEVANCE
+BALANCE COVERAGE AND RELEVANCE
 ==================================================
 
-The query must balance two objectives:
+The query must balance:
 
-1. Retrieve the broader research community working in the core field;
-2. Maintain clear relevance to the actual Special Issue scope.
+1. Retrieving the broader community working in the core field;
+2. Maintaining relevance to the actual Special Issue scope.
 
-Do not generate an excessively generic query that retrieves the entire first-level academic discipline.
+Do not retrieve an entire broad first-level discipline.
 
-Do not generate an excessively narrow query that requires every paper to mention several detailed Special Issue topics simultaneously.
+Do not require every paper to mention several narrow Special Issue details simultaneously.
 
-The correct strategy is:
+Use the core field as the main retrieval framework.
 
-- Use the core field as the main retrieval framework;
-- Expand it with major synonyms and representative technologies;
-- Use the Special Issue webpage information to select the most relevant branches;
-- Exclude branches that belong to the broader field but are outside the Special Issue emphasis.
+Use webpage information to select relevant branches and representative technologies.
 
-For example, for a Special Issue titled:
+Exclude branches that belong to the general field but fall outside the Special Issue emphasis.
+
+For a Special Issue titled:
 
 “Advanced Materials and Performance Characterization in Additive Manufacturing”
 
 the central field is additive manufacturing.
 
-The query should include major additive manufacturing terminology and technologies.
+The query should include:
 
-However, because the webpage emphasizes:
+- additive manufacturing;
+- 3D printing variants;
+- major additive manufacturing categories;
+- major representative additive manufacturing technologies.
 
-- metallic, ceramic, and composite feedstocks;
-- microstructural evolution;
-- mechanical, thermal, tribological, electrical, and corrosion performance;
-- residual stress and defects;
-- in situ monitoring;
-- post-processing;
-- qualification and reliability;
-- process–structure–property relationships;
+The webpage's focus on materials, microstructure, defects, residual stress, monitoring, post-processing, performance, qualification, and reliability should influence the selected vocabulary and keyword list.
 
-these webpage elements should influence the selected vocabulary and keyword list.
-
-The query should still retrieve additive manufacturing papers broadly, but its technical vocabulary should favor technologies and branches relevant to materials development, characterization, and component performance.
+However, these secondary concepts should not automatically become mandatory AND conditions.
 
 ==================================================
-BOOLEAN QUERY STRUCTURE
+BOOLEAN QUERY FORMAT
 ==================================================
 
-Use the database field format:
+Use:
 
 TITLE-ABS-KEY(...)
 
-Important formatting rule:
-
-The complete Boolean expression must be written on one single line.
+The complete Boolean query must be written on one single line.
 
 Do not insert line breaks inside TITLE-ABS-KEY(...).
 
-Correct format:
+Correct:
 
 TITLE-ABS-KEY(("additive manufacturing" OR "3d printing" OR "powder bed fusion" OR "directed energy deposition"))
 
-Incorrect format:
+Incorrect:
 
 TITLE-ABS-KEY(
   (
@@ -1358,63 +1596,37 @@ TITLE-ABS-KEY(
   )
 )
 
-Use:
+Use quotation marks for multi-word phrases.
 
-- quotation marks for multi-word phrases;
-- OR between synonyms, parallel technologies, and related field-identifying expressions;
-- AND only between genuinely indispensable independent concepts;
-- parentheses to organize concept groups where needed.
+Use OR between:
 
-==================================================
-WHEN TO USE OR
-==================================================
-
-Use OR to connect:
-
-- field synonyms;
+- synonyms;
 - spelling variants;
-- major technical categories;
-- representative technologies;
-- alternative terminology describing the same or parallel research directions.
+- parallel technologies;
+- technical categories;
+- field-identifying terminology.
 
-For a Special Issue centered on one established field, the main search query should usually consist of one broad OR structure.
+Use AND only when the Special Issue genuinely depends on the intersection of two independent and indispensable concepts.
 
-Example:
+Do not use AND simply because several concepts appear in the title or summary.
 
-TITLE-ABS-KEY(("additive manufacturing" OR "3d printing" OR "powder bed fusion" OR "selective laser melting" OR "directed energy deposition"))
-
-==================================================
-WHEN TO USE AND
-==================================================
-
-Do not use AND simply because several concepts appear in the Special Issue title or summary.
-
-Use AND only when the identity of the Special Issue genuinely depends on the intersection of two independent research concepts.
-
-Examples:
-
-TITLE-ABS-KEY((membrane OR "membrane separation") AND (wastewater OR "water treatment"))
-
-TITLE-ABS-KEY(("machine learning" OR "artificial intelligence") AND ("process control" OR "chemical process"))
-
-For a Special Issue that belongs primarily to one established field, do not force secondary topics such as characterization, performance, modeling, defects, sustainability, or optimization into mandatory AND groups.
+For a Special Issue centered on one established field, normally use one broad OR group.
 
 ==================================================
-QUERY TERM SELECTION
+QUERY TERM RULES
 ==================================================
 
-The final query should normally contain approximately 10–30 carefully selected expressions.
+The final search query should normally contain about 10–30 carefully selected expressions.
 
-Use more terms only when necessary to cover recognized technical categories.
+Use more only when necessary to cover recognized technical categories.
 
-Every expression should satisfy at least one of the following:
+Every expression should:
 
-- directly names the core field;
-- is a standard synonym or spelling variant;
-- is a major technical category of the field;
-- is a representative technology strongly associated with the field;
-- is an important branch clearly supported by the Special Issue webpage;
-- is a sufficiently specific phrase useful for finding relevant papers.
+- name the core field;
+- be a standard synonym or spelling variant;
+- be a major technical category;
+- be a representative field-identifying technology;
+- or be an important Special-Issue-specific branch.
 
 Avoid generic standalone terms such as:
 
@@ -1432,39 +1644,34 @@ Avoid generic standalone terms such as:
 - simulation;
 - engineering.
 
-These may be used only as part of meaningful technical phrases.
+These may appear only as part of meaningful technical phrases.
 
-Avoid ambiguous abbreviations used alone.
+Do not use ambiguous abbreviations alone.
 
-For example, do not use AM alone for additive manufacturing because AM has many unrelated meanings.
+For example, do not use AM alone for additive manufacturing.
 
-Use full phrases such as:
-
-- additive manufacturing;
-- wire arc additive manufacturing.
-
-Do not add fashionable concepts unsupported by the webpage, such as:
+Do not add unsupported fashionable terms such as:
 
 - digital twin;
 - generative AI;
 - large language model;
-- blockchain;
 - metaverse;
+- blockchain;
 - Industry 5.0.
 
 ==================================================
 KEYWORD LIST
 ==================================================
 
-Generate a keyword list suitable for screening:
+The keyword list is for screening:
 
-- titles;
+- article titles;
 - abstracts;
 - author keywords.
 
-The keyword list must reflect both:
+It should reflect both:
 
-1. The broader terminology of the core research field;
+1. The broader terminology of the core field;
 2. The actual technical scope of the Special Issue webpage.
 
 Include:
@@ -1474,24 +1681,11 @@ Include:
 - major technical categories;
 - representative technologies;
 - important Special-Issue-specific materials;
-- important characterization or monitoring methods;
+- relevant characterization or monitoring methods;
 - relevant process–structure–property terminology;
-- relevant performance and reliability topics.
+- relevant performance, defects, reliability, qualification, or post-processing topics.
 
-Secondary terms may be included in the keyword list even when they are not included as mandatory concepts in the Boolean query.
-
-For example, terms such as:
-
-- residual stress;
-- microstructural evolution;
-- defect characterization;
-- fatigue behavior;
-- corrosion resistance;
-- in situ monitoring;
-- post-processing;
-- materials qualification;
-
-may be valuable screening keywords for an additive manufacturing Special Issue, even though they should not necessarily form mandatory AND groups in the main search query.
+Secondary terms may appear in the keyword list even when they are not mandatory Boolean concepts.
 
 Each keyword or phrase must appear on a separate line.
 
@@ -1499,7 +1693,7 @@ Do not number the keywords.
 
 Do not use bullet points.
 
-Prefer 20–50 keywords depending on the breadth of the Special Issue.
+Prefer about 20–50 keywords.
 
 Do not include Boolean operators in the keyword list.
 
@@ -1509,17 +1703,17 @@ CONSISTENCY
 
 The Boolean query and keyword list must be related but do not need to be identical.
 
-The Boolean query should prioritize effective retrieval and should normally be shorter.
+The query should prioritize retrieval efficiency and usually be shorter.
 
-The keyword list may be broader and more detailed because it will be used for secondary screening of exported records.
+The keyword list may be broader and more detailed for secondary screening.
 
-The semicolon-separated keyword list must contain exactly the same terms, in exactly the same order, as [KEYWORD_LIST].
+The semicolon-separated list must contain exactly the same terms and the same order as [KEYWORD_LIST].
 
 ==================================================
 OUTPUT FORMAT
 ==================================================
 
-Return the result strictly in the following format:
+Return strictly:
 
 [CORE_FIELD]
 Core research field in English
@@ -1538,11 +1732,9 @@ keyword 3
 [KEYWORD_LIST_SEMICOLON]
 keyword 1；keyword 2；keyword 3
 
-The entire content following [SCILIT_SEARCH_QUERY] must be on one line.
+The content after [SCILIT_SEARCH_QUERY] must be one single line.
 
-Do not add any other sections.
-
-Do not explain the reasoning.
+Do not add explanations.
 
 Selected Special Issue text:
 
@@ -1552,24 +1744,40 @@ ${selectedText}
         callDeepSeek(
             systemPrompt,
             userPrompt,
-            outputBox,
             apiKey
         );
     }
 
+    function getSelectedText() {
+        const selection =
+            window.getSelection();
+
+        return selection
+            ? selection
+                .toString()
+                .trim()
+            : "";
+    }
+
+    // =========================================================
+    // DeepSeek request
+    // =========================================================
+
     function callDeepSeek(
         systemPrompt,
         userPrompt,
-        outputBox,
         apiKey
     ) {
         GM_xmlhttpRequest({
             method: "POST",
-            url: "https://api.deepseek.com/v1/chat/completions",
+            url:
+                "https://api.deepseek.com/v1/chat/completions",
 
             headers: {
-                "Content-Type": "application/json",
-                "Authorization": "Bearer " + apiKey
+                "Content-Type":
+                    "application/json",
+                "Authorization":
+                    "Bearer " + apiKey
             },
 
             data: JSON.stringify({
@@ -1578,11 +1786,13 @@ ${selectedText}
                 messages: [
                     {
                         role: "system",
-                        content: systemPrompt
+                        content:
+                            systemPrompt
                     },
                     {
                         role: "user",
-                        content: userPrompt
+                        content:
+                            userPrompt
                     }
                 ],
 
@@ -1591,17 +1801,41 @@ ${selectedText}
                 stream: false
             }),
 
+            timeout: 120000,
+
             onload: function (response) {
                 try {
+                    if (
+                        response.status < 200 ||
+                        response.status >= 300
+                    ) {
+                        setOutput(
+                            "API request failed.\n\n" +
+                            `HTTP status: ${response.status}\n` +
+                            (
+                                response.responseText ||
+                                "No response body."
+                            )
+                        );
+
+                        return;
+                    }
+
                     const data =
                         JSON.parse(
                             response.responseText
                         );
 
                     if (data.error) {
-                        outputBox.value =
+                        setOutput(
                             "API Error: " +
-                            data.error.message;
+                            (
+                                data.error.message ||
+                                JSON.stringify(
+                                    data.error
+                                )
+                            )
+                        );
 
                         return;
                     }
@@ -1613,118 +1847,176 @@ ${selectedText}
                             ?.trim();
 
                     if (!result) {
-                        outputBox.value =
-                            "No valid response returned from API.";
+                        setOutput(
+                            "No valid response returned from the API."
+                        );
 
                         return;
                     }
 
                     result =
-                        ensureSemicolonKeywordSection(
+                        normalizeApiResult(
                             result
                         );
 
-                    result =
-                        forceSingleLineSearchQuery(
-                            result
-                        );
-
-                    outputBox.value = result;
+                    setOutput(result);
                     GM_setClipboard(result);
                 } catch (error) {
-                    outputBox.value =
-                        "Failed to parse API response. " +
-                        "Please check console.";
+                    setOutput(
+                        "Failed to parse the API response.\n\n" +
+                        String(
+                            error?.message ||
+                            error
+                        )
+                    );
 
                     console.error(
+                        "Processes SI Matcher parse error:",
+                        error,
                         response.responseText
                     );
                 }
             },
 
             onerror: function (error) {
-                outputBox.value =
-                    "API request failed. " +
-                    "Please check API key, balance, or network.";
+                setOutput(
+                    "API request failed. Please check the API key, account balance, or network."
+                );
 
-                console.error(error);
+                console.error(
+                    "Processes SI Matcher request error:",
+                    error
+                );
+            },
+
+            ontimeout: function () {
+                setOutput(
+                    "The API request timed out. Please try again."
+                );
             }
         });
     }
 
-    function forceSingleLineSearchQuery(text) {
+    function normalizeApiResult(text) {
+        let result =
+            String(text || "")
+                .trim();
+
+        result =
+            removeMarkdownCodeFence(
+                result
+            );
+
+        result =
+            ensureSemicolonKeywordSection(
+                result
+            );
+
+        result =
+            forceSingleLineSearchQuery(
+                result
+            );
+
+        return result.trim();
+    }
+
+    function removeMarkdownCodeFence(text) {
+        const value =
+            String(text || "")
+                .trim();
+
+        if (
+            /^```[\w-]*\s*/.test(value) &&
+            /```\s*$/.test(value)
+        ) {
+            return value
+                .replace(
+                    /^```[\w-]*\s*/,
+                    ""
+                )
+                .replace(
+                    /```\s*$/,
+                    ""
+                )
+                .trim();
+        }
+
+        return value;
+    }
+
+    // =========================================================
+    // Search-query formatting
+    // =========================================================
+
+    function forceSingleLineSearchQuery(
+        text
+    ) {
         if (
             !text ||
-            !/\[SCILIT_SEARCH_QUERY\]/i.test(text)
+            !/\[SCILIT_SEARCH_QUERY\]/i.test(
+                text
+            )
         ) {
             return text;
         }
 
+        const querySectionPattern =
+            /(\[SCILIT_SEARCH_QUERY\]\s*)([\s\S]*?)(?=\n\s*\[KEYWORD_LIST\])/i;
+
         return text.replace(
-            /(\[SCILIT_SEARCH_QUERY\]\s*)(TITLE-ABS-KEY\([\s\S]*?\))(?=\s*\n\s*\[KEYWORD_LIST\])/i,
-            function (_, header, query) {
-                const singleLineQuery = query
-                    .replace(/\r?\n+/g, " ")
-                    .replace(/\s{2,}/g, " ")
-                    .replace(/\(\s+/g, "(")
-                    .replace(/\s+\)/g, ")")
-                    .trim();
+            querySectionPattern,
+            function (
+                fullMatch,
+                header,
+                querySection
+            ) {
+                const singleLineQuery =
+                    String(
+                        querySection ||
+                        ""
+                    )
+                        .replace(
+                            /\r?\n+/g,
+                            " "
+                        )
+                        .replace(
+                            /\s{2,}/g,
+                            " "
+                        )
+                        .replace(
+                            /\(\s+/g,
+                            "("
+                        )
+                        .replace(
+                            /\s+\)/g,
+                            ")"
+                        )
+                        .trim();
 
                 return (
                     header.trim() +
                     "\n" +
                     singleLineQuery +
-                    "\n"
+                    "\n\n"
                 );
             }
         );
     }
 
-    function ensureSemicolonKeywordSection(text) {
+    // =========================================================
+    // Keyword formatting
+    // =========================================================
+
+    function ensureSemicolonKeywordSection(
+        text
+    ) {
         if (
             !text ||
-            !/\[KEYWORD_LIST\]/i.test(text)
+            !/\[KEYWORD_LIST\]/i.test(
+                text
+            )
         ) {
             return text;
-        }
-
-        if (
-            /\[KEYWORD_LIST_SEMICOLON\]/i.test(text)
-        ) {
-            const parts = text.split(
-                /\[KEYWORD_LIST_SEMICOLON\]/i
-            );
-
-            const before =
-                parts[0].trim();
-
-            const after =
-                parts
-                    .slice(1)
-                    .join(
-                        "[KEYWORD_LIST_SEMICOLON]"
-                    )
-                    .trim();
-
-            if (
-                after &&
-                !after.includes("\n")
-            ) {
-                return text;
-            }
-
-            const keywords =
-                extractKeywordLines(before);
-
-            if (!keywords.length) {
-                return text;
-            }
-
-            return (
-                before +
-                "\n\n[KEYWORD_LIST_SEMICOLON]\n" +
-                keywords.join("；")
-            );
         }
 
         const keywords =
@@ -1734,66 +2026,111 @@ ${selectedText}
             return text;
         }
 
+        const semicolonLine =
+            keywords.join("；");
+
+        if (
+            /\[KEYWORD_LIST_SEMICOLON\]/i.test(
+                text
+            )
+        ) {
+            return text.replace(
+                /\[KEYWORD_LIST_SEMICOLON\][\s\S]*$/i,
+                "[KEYWORD_LIST_SEMICOLON]\n" +
+                semicolonLine
+            );
+        }
+
         return (
             text.trim() +
-            "\n\n[KEYWORD_LIST_SEMICOLON]\n" +
-            keywords.join("；")
+            "\n\n" +
+            "[KEYWORD_LIST_SEMICOLON]\n" +
+            semicolonLine
         );
     }
 
     function extractKeywordLines(text) {
-        const match = text.match(
-            /\[KEYWORD_LIST\]([\s\S]*?)(?:\n\s*\[[A-Z_]+\]|\s*$)/i
-        );
+        const match =
+            String(text || "")
+                .match(
+                    /\[KEYWORD_LIST\]([\s\S]*?)(?=\n\s*\[KEYWORD_LIST_SEMICOLON\]|\s*$)/i
+                );
 
         if (!match) {
             return [];
         }
 
-        const raw = match[1] || "";
+        const raw =
+            match[1] || "";
 
-        const keywords = raw
-            .split(/\r?\n/)
-            .map(x => x.trim())
-            .map(x =>
-                x.replace(/^[-•*]\s*/, "")
-            )
-            .map(x =>
-                x.replace(
-                    /^\d+[\.\)]\s*/,
-                    ""
+        const keywords =
+            raw
+                .split(/\r?\n/)
+                .map(
+                    item =>
+                        item.trim()
                 )
-            )
-            .map(x =>
-                x.replace(/；/g, ";")
-            )
-            .flatMap(x =>
-                x.split(";")
-            )
-            .map(x =>
-                x.trim()
-            )
-            .filter(x =>
-                x.length > 1
-            )
-            .filter(x =>
-                !/^\[.*\]$/.test(x)
-            );
+                .map(
+                    item =>
+                        item.replace(
+                            /^[-•*]\s*/,
+                            ""
+                        )
+                )
+                .map(
+                    item =>
+                        item.replace(
+                            /^\d+[\.\)]\s*/,
+                            ""
+                        )
+                )
+                .map(
+                    item =>
+                        item.replace(
+                            /；/g,
+                            ";"
+                        )
+                )
+                .flatMap(
+                    item =>
+                        item.split(";")
+                )
+                .map(
+                    item =>
+                        item.trim()
+                )
+                .filter(
+                    item =>
+                        item.length > 1
+                )
+                .filter(
+                    item =>
+                        !/^\[.*\]$/.test(
+                            item
+                        )
+                );
 
         return [
             ...new Set(keywords)
         ];
     }
 
+    // =========================================================
+    // Text cleaner
+    // =========================================================
+
     function convertCleanerText() {
         const box =
             document.getElementById(
-                "si-cleaner-input"
+                UI_IDS.CLEANER_INPUT
             );
 
-        if (!box) return;
+        if (!box) {
+            return;
+        }
 
-        const raw = box.value || "";
+        const raw =
+            box.value || "";
 
         if (!raw.trim()) {
             alert(
@@ -1803,11 +2140,21 @@ ${selectedText}
             return;
         }
 
-        const cleaned = raw
-            .replace(/\r?\n+/g, " ")
-            .replace(/\t+/g, " ")
-            .replace(/\s{2,}/g, " ")
-            .trim();
+        const cleaned =
+            raw
+                .replace(
+                    /\r?\n+/g,
+                    " "
+                )
+                .replace(
+                    /\t+/g,
+                    " "
+                )
+                .replace(
+                    /\s{2,}/g,
+                    " "
+                )
+                .trim();
 
         box.value = cleaned;
         GM_setClipboard(cleaned);
@@ -1820,7 +2167,7 @@ ${selectedText}
     function clearCleanerText() {
         const box =
             document.getElementById(
-                "si-cleaner-input"
+                UI_IDS.CLEANER_INPUT
             );
 
         if (box) {
@@ -1828,22 +2175,33 @@ ${selectedText}
         }
     }
 
+    // =========================================================
+    // Copy output
+    // =========================================================
+
     function copyOutput() {
         const outputBox =
-            document.getElementById(
-                "si-output"
-            );
+            getOutputBox();
 
-        if (!outputBox) return;
+        if (!outputBox) {
+            return;
+        }
 
         const text =
             outputBox.value.trim();
 
-        if (text) {
-            GM_setClipboard(text);
-            alert("Result copied.");
-        }
-    }
+        if (!text) {
+            alert(
+                "There is no result to copy."
+            );
 
+            return;
+        }
+
+        GM_setClipboard(text);
+
+        alert(
+            "Result copied."
+        );
+    }
 })();
-```
