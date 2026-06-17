@@ -1,7 +1,8 @@
+```javascript
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.6
+// @version      4.6.1
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
@@ -25,7 +26,7 @@
 
     const API_KEY_STORAGE = "processes_deepseek_api_key";
     const API_KEY_TIME_STORAGE = "processes_deepseek_api_key_time";
-    const API_KEY_VALID_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const API_KEY_VALID_MS = 7 * 24 * 60 * 60 * 1000;
 
     const SI_LIST_URL =
         "https://gist.githubusercontent.com/scarlett-personaluse/53c0316fb23a0fd021e753f5192a4e5f/raw/SI%20list-scarlett";
@@ -314,6 +315,7 @@
         document.head.appendChild(style);
 
         makeDraggable(miniBtn, miniBtn);
+
         makeDraggable(
             panel,
             document.getElementById("si-panel-drag-handle")
@@ -1188,23 +1190,6 @@ ${selectedText}
             "Generating Scilit search query and keyword list...";
 
         const systemPrompt = `
-You are an expert in academic field classification, bibliographic database searching, Boolean query construction, and potential-author discovery.
-
-Your task is not merely to extract words from a Special Issue webpage.
-
-You must first identify the core academic field represented by the Special Issue, and then construct a comprehensive search strategy based on professional knowledge of that field.
-
-The Special Issue title normally provides the strongest indication of the core field. The summary, scope, keywords, and Guest Editor interests should be used as supporting information, not treated as equally important mandatory concepts.
-
-Your output will be used to search titles, abstracts, and author keywords in Scopus, Scilit, or similar academic databases.
-
-Return only the required formatted output.
-
-Do not add explanations outside the specified sections.
-`;
-
-
-const systemPrompt = `
 You are an expert in academic field classification, bibliographic database searching, Boolean query construction, Special Issue topic analysis, and potential-author discovery.
 
 Your task is to convert selected Special Issue webpage information into a practical literature search strategy.
@@ -1227,7 +1212,7 @@ Return only the required formatted output.
 Do not add explanations outside the specified sections.
 `;
 
-const userPrompt = `
+        const userPrompt = `
 The following text is selected from a Special Issue webpage.
 
 It may include:
@@ -1587,7 +1572,6 @@ Selected Special Issue text:
 ${selectedText}
 `;
 
-
         callDeepSeek(
             systemPrompt,
             userPrompt,
@@ -1663,6 +1647,11 @@ ${selectedText}
                             result
                         );
 
+                    result =
+                        forceSingleLineSearchQuery(
+                            result
+                        );
+
                     outputBox.value = result;
                     GM_setClipboard(result);
                 } catch (error) {
@@ -1684,6 +1673,34 @@ ${selectedText}
                 console.error(error);
             }
         });
+    }
+
+    function forceSingleLineSearchQuery(text) {
+        if (
+            !text ||
+            !/\[SCILIT_SEARCH_QUERY\]/i.test(text)
+        ) {
+            return text;
+        }
+
+        return text.replace(
+            /(\[SCILIT_SEARCH_QUERY\]\s*)(TITLE-ABS-KEY\([\s\S]*?\))(?=\s*\n\s*\[KEYWORD_LIST\])/i,
+            function (_, header, query) {
+                const singleLineQuery = query
+                    .replace(/\r?\n+/g, " ")
+                    .replace(/\s{2,}/g, " ")
+                    .replace(/\(\s+/g, "(")
+                    .replace(/\s+\)/g, ")")
+                    .trim();
+
+                return (
+                    header.trim() +
+                    "\n" +
+                    singleLineQuery +
+                    "\n"
+                );
+            }
+        );
     }
 
     function ensureSemicolonKeywordSection(text) {
@@ -1852,3 +1869,4 @@ ${selectedText}
     }
 
 })();
+```
