@@ -2,13 +2,13 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.6.1
+// @version      4.6.2
 // @author       Jiali Tang
 // @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match selected scholar information with existing Processes SI titles, generate SI titles, Scilit queries, keyword lists, and clean pasted text
 // @match        *://*/*
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
+*// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
+*// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Processes-SI-Title-Matcher.user.js
 // @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
@@ -1188,29 +1188,6 @@ ${selectedText}
 
         outputBox.value =
             "Generating Scilit search query and keyword list...";
-
-        const systemPrompt = `
-You are an expert in academic field classification, bibliographic database searching, Boolean query construction, Special Issue topic analysis, and potential-author discovery.
-
-Your task is to convert selected Special Issue webpage information into a practical literature search strategy.
-
-You must not merely copy keywords from the webpage, and you must not generate a completely generic query based only on a broad academic field.
-
-Instead, you must:
-
-1. Identify the core research field of the Special Issue;
-2. Use professional domain knowledge to expand the core field into its standard synonyms, alternative spellings, major technical categories, and representative technologies;
-3. Use the Special Issue title, summary, topic list, keywords, and Guest Editor research interests to determine which branches, technologies, materials, methods, applications, and performance topics are genuinely relevant;
-4. Remove field-related terms that are technically valid but clearly outside the actual focus of the Special Issue.
-
-The Special Issue title normally provides the strongest indication of the core topic.
-
-The summary, topics, keywords, and Guest Editor interests must all be considered as supporting evidence.
-
-Return only the required formatted output.
-
-Do not add explanations outside the specified sections.
-`;
 
         const userPrompt = `
 The following text is selected from a Special Issue webpage.
