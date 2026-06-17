@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Processes SI Title Matcher
 // @namespace    Processes-SI-Title-Matcher
-// @version      4.6.3
+// @version      4.6.4
 // @author       Jiali Tang
-// @icon         https://pub-mdpi-res.com/img/journals/processes-logo-sq.png
+// @icon         https://pub.mdpi-res.com/img/journals/processes-logo-sq.png?1e142e5ab0d148f8
 // @description  Match scholars with Processes Special Issues and generate literature search queries
 // @match        *://*/*
 // @homepageURL  https://github.com/scarlett-personaluse/scopus-mdpi-helper
