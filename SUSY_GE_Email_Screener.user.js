@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SUSY GE Email Screener
 // @namespace    MDPI-SUSY-Verification-Screener
-// @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
-// @version      1.1
+// @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg
+// @version      1.2
 // @description  逐个测试学者邮箱，记录触发滑动验证的邮箱，不点击 Proceed。
 // @match        https://susy.mdpi.com/special_issue/process/*
 // @grant        GM_setClipboard
@@ -27,12 +27,20 @@
     const RESULT_TIMEOUT = 8000;
     const CHECK_INTERVAL = 200;
 
+    const THEME_COLOR = "#72B89A";
+    const THEME_DARK = "#55997D";
+    const THEME_LIGHT = "#EAF6F0";
+    const THEME_BORDER = "#B8DDCD";
+
     ready(() => {
         createPanel();
         setupEscStop();
 
         if (!localStorage.getItem(STORAGE.processUrl)) {
-            localStorage.setItem(STORAGE.processUrl, cleanPageUrl());
+            localStorage.setItem(
+                STORAGE.processUrl,
+                cleanPageUrl()
+            );
         }
 
         if (isRunning()) {
@@ -42,39 +50,85 @@
 
     function ready(callback) {
         if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", callback, {
-                once: true
-            });
+            document.addEventListener(
+                "DOMContentLoaded",
+                callback,
+                { once: true }
+            );
         } else {
             callback();
         }
     }
 
     function createPanel() {
-        if (document.getElementById("svs-panel")) return;
+        if (
+            document.getElementById("svs-panel") ||
+            document.getElementById("svs-mini")
+        ) {
+            return;
+        }
 
         const style = document.createElement("style");
 
         style.textContent = `
-            #svs-panel {
+            #svs-mini {
                 position: fixed;
                 right: 18px;
-                bottom: 24px;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 58px;
+                height: 58px;
+                padding: 0;
+                border: none;
+                border-radius: 50%;
+                background: ${THEME_COLOR};
+                color: white;
+                cursor: pointer;
+                z-index: 10000001;
+                box-shadow: 0 4px 15px rgba(0,0,0,.25);
+                font-family: Arial, sans-serif;
+                font-size: 12px;
+                font-weight: bold;
+                line-height: 1.15;
+                transition:
+                    transform .15s ease,
+                    background .15s ease,
+                    box-shadow .15s ease;
+            }
+
+            #svs-mini:hover {
+                background: ${THEME_DARK};
+                transform: translateY(-50%) scale(1.07);
+                box-shadow: 0 6px 18px rgba(0,0,0,.3);
+            }
+
+            #svs-mini.svs-running {
+                box-shadow:
+                    0 0 0 4px rgba(114,184,154,.22),
+                    0 4px 15px rgba(0,0,0,.25);
+            }
+
+            #svs-panel {
+                position: fixed;
+                right: 88px;
+                top: 50%;
+                transform: translateY(-50%);
                 width: 430px;
                 max-height: 88vh;
                 overflow: auto;
                 z-index: 10000000;
                 background: white;
-                border: 1px solid #ccc;
+                border: 1px solid ${THEME_BORDER};
                 border-radius: 12px;
                 box-shadow: 0 5px 20px rgba(0,0,0,.25);
                 font-family: Arial, sans-serif;
                 color: #222;
+                display: none;
             }
 
             #svs-header {
                 padding: 10px 12px;
-                background: #eb2f96;
+                background: ${THEME_COLOR};
                 color: white;
                 border-radius: 12px 12px 0 0;
                 font-weight: bold;
@@ -109,17 +163,21 @@
             }
 
             .svs-primary {
-                background: #eb2f96;
+                background: ${THEME_COLOR};
                 color: white;
             }
 
             .svs-primary:hover {
-                background: #c41d7f;
+                background: ${THEME_DARK};
             }
 
             .svs-danger {
                 background: #fff1f0;
                 color: #a8071a;
+            }
+
+            .svs-danger:hover {
+                background: #ffd8d4;
             }
 
             .svs-textarea {
@@ -130,10 +188,23 @@
                 padding: 8px;
                 resize: vertical;
                 font-size: 12px;
+                font-family: Arial, sans-serif;
+            }
+
+            .svs-textarea:focus {
+                outline: none;
+                border-color: ${THEME_COLOR};
+                box-shadow: 0 0 0 2px rgba(114,184,154,.16);
             }
         `;
 
         document.head.appendChild(style);
+
+        const miniButton = document.createElement("button");
+        miniButton.id = "svs-mini";
+        miniButton.type = "button";
+        miniButton.innerHTML = "邮箱<br>筛选";
+        miniButton.title = "打开 SUSY Email Screener";
 
         const panel = document.createElement("div");
         panel.id = "svs-panel";
@@ -141,11 +212,21 @@
         panel.innerHTML = `
             <div id="svs-header">
                 <span>SUSY Verification Screener</span>
-                <button id="svs-minimize"
-                    style="border:none;background:white;color:#c41d7f;
-                    border-radius:6px;padding:3px 10px;cursor:pointer;
-                    font-weight:bold;">
-                    −
+
+                <button
+                    id="svs-minimize"
+                    type="button"
+                    style="
+                        border:none;
+                        background:white;
+                        color:${THEME_DARK};
+                        border-radius:6px;
+                        padding:4px 10px;
+                        cursor:pointer;
+                        font-weight:bold;
+                    "
+                >
+                    收起
                 </button>
             </div>
 
@@ -153,8 +234,8 @@
                 <div style="
                     padding:8px;
                     margin-bottom:8px;
-                    background:#fff0f6;
-                    border:1px solid #ffd6e7;
+                    background:${THEME_LIGHT};
+                    border:1px solid ${THEME_BORDER};
                     border-radius:8px;
                     line-height:1.5;
                 ">
@@ -176,31 +257,52 @@
                     placeholder="可粘贴 CSV、TXT，或者每行一个邮箱"
                 ></textarea>
 
-                <button id="svs-import" class="svs-btn">
+                <button
+                    id="svs-import"
+                    class="svs-btn"
+                >
                     导入邮箱
                 </button>
 
-                <button id="svs-start" class="svs-btn svs-primary">
+                <button
+                    id="svs-start"
+                    class="svs-btn svs-primary"
+                >
                     从头开始筛选
                 </button>
 
-                <button id="svs-resume" class="svs-btn">
+                <button
+                    id="svs-resume"
+                    class="svs-btn"
+                >
                     继续筛选
                 </button>
 
-                <button id="svs-stop" class="svs-btn svs-danger">
+                <button
+                    id="svs-stop"
+                    class="svs-btn svs-danger"
+                >
                     停止
                 </button>
 
-                <button id="svs-copy" class="svs-btn">
+                <button
+                    id="svs-copy"
+                    class="svs-btn"
+                >
                     复制需要验证的邮箱
                 </button>
 
-                <button id="svs-export" class="svs-btn">
+                <button
+                    id="svs-export"
+                    class="svs-btn"
+                >
                     复制完整结果 CSV
                 </button>
 
-                <button id="svs-clear" class="svs-btn svs-danger">
+                <button
+                    id="svs-clear"
+                    class="svs-btn svs-danger"
+                >
                     清空本地数据
                 </button>
 
@@ -209,15 +311,19 @@
                     style="
                         margin-top:9px;
                         padding:8px;
-                        background:#fafafa;
-                        border:1px solid #ddd;
+                        background:${THEME_LIGHT};
+                        border:1px solid ${THEME_BORDER};
                         border-radius:8px;
                         white-space:pre-wrap;
                         line-height:1.5;
                     "
                 ></div>
 
-                <div style="margin-top:10px;font-weight:bold;">
+                <div style="
+                    margin-top:10px;
+                    font-weight:bold;
+                    color:${THEME_DARK};
+                ">
                     需要滑动验证的邮箱
                 </div>
 
@@ -229,7 +335,11 @@
                 ></textarea>
 
                 <details style="margin-top:8px;">
-                    <summary style="cursor:pointer;font-weight:bold;">
+                    <summary style="
+                        cursor:pointer;
+                        font-weight:bold;
+                        color:${THEME_DARK};
+                    ">
                         运行日志
                     </summary>
 
@@ -237,27 +347,39 @@
                         id="svs-log"
                         class="svs-textarea"
                         readonly
-                        style="height:140px;margin-top:5px;font-size:11px;"
+                        style="
+                            height:140px;
+                            margin-top:5px;
+                            font-size:11px;
+                        "
                     ></textarea>
                 </details>
             </div>
         `;
 
+        document.body.appendChild(miniButton);
         document.body.appendChild(panel);
+
+        miniButton.addEventListener("click", () => {
+            miniButton.style.display = "none";
+            panel.style.display = "block";
+            updatePanel();
+        });
+
+        document
+            .getElementById("svs-minimize")
+            .addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                panel.style.display = "none";
+                miniButton.style.display = "block";
+            });
 
         makeDraggable(
             panel,
             document.getElementById("svs-header")
         );
-
-        document.getElementById("svs-minimize").onclick = () => {
-            const body = document.getElementById("svs-body");
-
-            body.style.display =
-                body.style.display === "none"
-                    ? "block"
-                    : "none";
-        };
 
         document.getElementById("svs-file").onchange =
             importFile;
@@ -300,7 +422,9 @@
         let offsetY = 0;
 
         header.addEventListener("mousedown", event => {
-            if (event.target.id === "svs-minimize") return;
+            if (event.target.id === "svs-minimize") {
+                return;
+            }
 
             const rect = panel.getBoundingClientRect();
 
@@ -312,6 +436,7 @@
             panel.style.top = rect.top + "px";
             panel.style.right = "auto";
             panel.style.bottom = "auto";
+            panel.style.transform = "none";
 
             event.preventDefault();
         });
@@ -319,11 +444,23 @@
         document.addEventListener("mousemove", event => {
             if (!dragging) return;
 
+            const maxLeft =
+                window.innerWidth - panel.offsetWidth;
+
+            const maxTop =
+                window.innerHeight - panel.offsetHeight;
+
             panel.style.left =
-                Math.max(0, event.clientX - offsetX) + "px";
+                Math.min(
+                    Math.max(0, event.clientX - offsetX),
+                    Math.max(0, maxLeft)
+                ) + "px";
 
             panel.style.top =
-                Math.max(0, event.clientY - offsetY) + "px";
+                Math.min(
+                    Math.max(0, event.clientY - offsetY),
+                    Math.max(0, maxTop)
+                ) + "px";
         });
 
         document.addEventListener("mouseup", () => {
@@ -341,7 +478,9 @@
         reader.onload = () => {
             const text = String(reader.result || "");
 
-            document.getElementById("svs-input").value = text;
+            document.getElementById(
+                "svs-input"
+            ).value = text;
 
             saveImportedEmails(text);
         };
@@ -354,8 +493,12 @@
     }
 
     function importTextarea() {
-        const text =
-            document.getElementById("svs-input").value;
+        const input =
+            document.getElementById("svs-input");
+
+        const text = input
+            ? input.value
+            : "";
 
         if (!text.trim()) {
             alert("请先粘贴邮箱或导入文件。");
@@ -378,13 +521,20 @@
             JSON.stringify(emails)
         );
 
-        localStorage.setItem(STORAGE.index, "0");
+        localStorage.setItem(
+            STORAGE.index,
+            "0"
+        );
 
-        log(`成功导入 ${emails.length} 个去重邮箱。`);
+        log(
+            `成功导入 ${emails.length} 个去重邮箱。`
+        );
 
         updatePanel();
 
-        alert(`已导入 ${emails.length} 个邮箱。`);
+        alert(
+            `已导入 ${emails.length} 个邮箱。`
+        );
     }
 
     function extractEmails(text) {
@@ -413,22 +563,45 @@
     }
 
     function startNewRun() {
-        const emails = getJSON(STORAGE.emails, []);
+        const emails = getJSON(
+            STORAGE.emails,
+            []
+        );
 
         if (!emails.length) {
             alert("请先导入邮箱。");
             return;
         }
 
-        localStorage.setItem(STORAGE.index, "0");
-        localStorage.setItem(STORAGE.hits, "[]");
-        localStorage.setItem(STORAGE.results, "[]");
-        localStorage.setItem(STORAGE.logs, "[]");
+        localStorage.setItem(
+            STORAGE.index,
+            "0"
+        );
+
+        localStorage.setItem(
+            STORAGE.hits,
+            "[]"
+        );
+
+        localStorage.setItem(
+            STORAGE.results,
+            "[]"
+        );
+
+        localStorage.setItem(
+            STORAGE.logs,
+            "[]"
+        );
+
         localStorage.setItem(
             STORAGE.processUrl,
             cleanPageUrl()
         );
-        localStorage.setItem(STORAGE.running, "1");
+
+        localStorage.setItem(
+            STORAGE.running,
+            "1"
+        );
 
         log("开始新的筛选任务。");
 
@@ -438,7 +611,10 @@
     }
 
     function resumeRun() {
-        const emails = getJSON(STORAGE.emails, []);
+        const emails = getJSON(
+            STORAGE.emails,
+            []
+        );
 
         if (!emails.length) {
             alert("请先导入邮箱。");
@@ -450,7 +626,10 @@
             cleanPageUrl()
         );
 
-        localStorage.setItem(STORAGE.running, "1");
+        localStorage.setItem(
+            STORAGE.running,
+            "1"
+        );
 
         log("继续筛选任务。");
 
@@ -460,26 +639,36 @@
     }
 
     function stopRun(reason) {
-        localStorage.setItem(STORAGE.running, "0");
+        localStorage.setItem(
+            STORAGE.running,
+            "0"
+        );
 
         log(reason);
 
-        updatePanel();
+        updatePanel(reason);
     }
 
     function isRunning() {
         return (
-            localStorage.getItem(STORAGE.running) === "1"
+            localStorage.getItem(
+                STORAGE.running
+            ) === "1"
         );
     }
 
     async function processCurrentEmail() {
         if (!isRunning()) return;
 
-        const emails = getJSON(STORAGE.emails, []);
+        const emails = getJSON(
+            STORAGE.emails,
+            []
+        );
 
         const index = Number(
-            localStorage.getItem(STORAGE.index) || 0
+            localStorage.getItem(
+                STORAGE.index
+            ) || 0
         );
 
         if (index >= emails.length) {
@@ -493,28 +682,39 @@
             `正在检查 ${index + 1}/${emails.length}：${email}`
         );
 
-        updatePanel(`当前邮箱：${email}`);
+        updatePanel(
+            `当前邮箱：${email}`
+        );
 
         try {
-            const emailInput = await waitForElement(
-                findEmailInput,
-                ELEMENT_TIMEOUT
+            const emailInput =
+                await waitForElement(
+                    findEmailInput,
+                    ELEMENT_TIMEOUT
+                );
+
+            fillInput(
+                emailInput,
+                email
             );
 
-            fillInput(emailInput, email);
-
-            const nextButton = await waitForElement(
-                () => findButtonByText("next"),
-                ELEMENT_TIMEOUT
-            );
+            const nextButton =
+                await waitForElement(
+                    () => findButtonByText("next"),
+                    ELEMENT_TIMEOUT
+                );
 
             clickElement(nextButton);
 
-            const result = await detectResult(
-                RESULT_TIMEOUT
-            );
+            const result =
+                await detectResult(
+                    RESULT_TIMEOUT
+                );
 
-            saveResult(email, result);
+            saveResult(
+                email,
+                result
+            );
         } catch (error) {
             saveResult(email, {
                 status: "ERROR",
@@ -532,10 +732,6 @@
             const start = Date.now();
 
             const timer = setInterval(() => {
-                /*
-                 * 检测到滑动验证：
-                 * 只记录，不等待，也不尝试处理验证。
-                 */
                 if (hasDragVerification()) {
                     clearInterval(timer);
 
@@ -547,11 +743,6 @@
                     return;
                 }
 
-                /*
-                 * 检测到 Proceed：
-                 * 表示该邮箱没有触发验证。
-                 * 不点击 Proceed。
-                 */
                 const proceedButton =
                     findButtonByText("proceed");
 
@@ -570,7 +761,8 @@
                     return;
                 }
 
-                const pageMessage = detectPageMessage();
+                const pageMessage =
+                    detectPageMessage();
 
                 if (pageMessage) {
                     clearInterval(timer);
@@ -583,7 +775,9 @@
                     return;
                 }
 
-                if (Date.now() - start >= timeout) {
+                if (
+                    Date.now() - start >= timeout
+                ) {
                     clearInterval(timer);
 
                     resolve({
@@ -599,10 +793,6 @@
     }
 
     function hasDragVerification() {
-        /*
-         * 第一种方式：
-         * 根据验证组件常见的 class 和 id 检测。
-         */
         const selectors = [
             "[class*='slider' i]",
             "[id*='slider' i]",
@@ -614,7 +804,9 @@
 
         for (const selector of selectors) {
             const elements =
-                document.querySelectorAll(selector);
+                document.querySelectorAll(
+                    selector
+                );
 
             for (const element of elements) {
                 if (
@@ -624,7 +816,8 @@
                     continue;
                 }
 
-                const text = normalizeText(element);
+                const text =
+                    normalizeText(element);
 
                 if (
                     text.includes("drag") ||
@@ -639,10 +832,6 @@
             }
         }
 
-        /*
-         * 第二种方式：
-         * 根据页面显示文字检测。
-         */
         const phrases = [
             "please drag",
             "drag to verify",
@@ -656,7 +845,9 @@
         ];
 
         const elements = Array.from(
-            document.querySelectorAll("body *")
+            document.querySelectorAll(
+                "body *"
+            )
         );
 
         return elements.some(element => {
@@ -667,13 +858,13 @@
                 return false;
             }
 
-            const text = normalizeText(element);
+            const text =
+                normalizeText(element);
 
-            /*
-             * 避免直接匹配整个 body 的超长文本，
-             * 减少误判。
-             */
-            if (!text || text.length > 300) {
+            if (
+                !text ||
+                text.length > 300
+            ) {
                 return false;
             }
 
@@ -684,7 +875,8 @@
     }
 
     function detectPageMessage() {
-        const pageText = normalizeText(document.body);
+        const pageText =
+            normalizeText(document.body);
 
         const knownMessages = [
             "the number of proposed ge cannot exceed 5",
@@ -697,9 +889,10 @@
             "not found"
         ];
 
-        const matched = knownMessages.find(message =>
-            pageText.includes(message)
-        );
+        const matched =
+            knownMessages.find(message =>
+                pageText.includes(message)
+            );
 
         return matched || "";
     }
@@ -714,7 +907,8 @@
             email,
             status: result.status,
             reason: result.reason,
-            checkedAt: new Date().toISOString(),
+            checkedAt:
+                new Date().toISOString(),
             pageUrl: location.href
         });
 
@@ -723,19 +917,28 @@
             JSON.stringify(results)
         );
 
-        if (result.status === "NEEDS_VERIFICATION") {
-            const hits = getJSON(STORAGE.hits, []);
-
-            const alreadyExists = hits.some(
-                item =>
-                    String(item.email).toLowerCase() ===
-                    email.toLowerCase()
+        if (
+            result.status ===
+            "NEEDS_VERIFICATION"
+        ) {
+            const hits = getJSON(
+                STORAGE.hits,
+                []
             );
+
+            const alreadyExists =
+                hits.some(item =>
+                    String(
+                        item.email
+                    ).toLowerCase() ===
+                    email.toLowerCase()
+                );
 
             if (!alreadyExists) {
                 hits.push({
                     email,
-                    checkedAt: new Date().toISOString()
+                    checkedAt:
+                        new Date().toISOString()
                 });
 
                 localStorage.setItem(
@@ -744,7 +947,9 @@
                 );
             }
 
-            log(`需要验证：${email}`);
+            log(
+                `需要验证：${email}`
+            );
         } else {
             log(
                 `${result.status}：${email}；${result.reason}`
@@ -756,7 +961,9 @@
 
     function moveToNextEmail() {
         const currentIndex = Number(
-            localStorage.getItem(STORAGE.index) || 0
+            localStorage.getItem(
+                STORAGE.index
+            ) || 0
         );
 
         localStorage.setItem(
@@ -768,11 +975,6 @@
 
         if (!isRunning()) return;
 
-        /*
-         * 每检查完一个邮箱后重新打开当前
-         * Special Issue Process 页面，
-         * 清除上一个邮箱留下的验证框或结果。
-         */
         setTimeout(() => {
             const processUrl =
                 localStorage.getItem(
@@ -784,9 +986,15 @@
     }
 
     function finishRun() {
-        localStorage.setItem(STORAGE.running, "0");
+        localStorage.setItem(
+            STORAGE.running,
+            "0"
+        );
 
-        const hits = getJSON(STORAGE.hits, []);
+        const hits = getJSON(
+            STORAGE.hits,
+            []
+        );
 
         const emailList = hits
             .map(item => item.email)
@@ -802,6 +1010,21 @@
             GM_setClipboard(emailList);
         }
 
+        const panel =
+            document.getElementById(
+                "svs-panel"
+            );
+
+        const mini =
+            document.getElementById(
+                "svs-mini"
+            );
+
+        if (panel && mini) {
+            mini.style.display = "none";
+            panel.style.display = "block";
+        }
+
         alert(
             `筛选完成。\n需要验证的邮箱：${hits.length} 个` +
             (
@@ -813,20 +1036,27 @@
     }
 
     function copyVerificationEmails() {
-        const hits = getJSON(STORAGE.hits, []);
+        const hits = getJSON(
+            STORAGE.hits,
+            []
+        );
 
         const text = hits
             .map(item => item.email)
             .join("\n");
 
         if (!text) {
-            alert("目前没有需要验证的邮箱。");
+            alert(
+                "目前没有需要验证的邮箱。"
+            );
             return;
         }
 
         GM_setClipboard(text);
 
-        alert(`已复制 ${hits.length} 个邮箱。`);
+        alert(
+            `已复制 ${hits.length} 个邮箱。`
+        );
     }
 
     function copyFullResults() {
@@ -853,7 +1083,9 @@
             ...results.map(row =>
                 headers
                     .map(header =>
-                        csvEscape(row[header])
+                        csvEscape(
+                            row[header]
+                        )
                     )
                     .join(",")
             )
@@ -861,7 +1093,9 @@
 
         GM_setClipboard(csv);
 
-        alert("完整结果 CSV 已复制到剪贴板。");
+        alert(
+            "完整结果 CSV 已复制到剪贴板。"
+        );
     }
 
     function clearData() {
@@ -871,7 +1105,9 @@
 
         if (!confirmed) return;
 
-        Object.values(STORAGE).forEach(key => {
+        Object.values(
+            STORAGE
+        ).forEach(key => {
             localStorage.removeItem(key);
         });
 
@@ -880,10 +1116,14 @@
             cleanPageUrl()
         );
 
-        updatePanel("本地数据已清空。");
+        updatePanel(
+            "本地数据已清空。"
+        );
     }
 
-    function updatePanel(extraMessage = "") {
+    function updatePanel(
+        extraMessage = ""
+    ) {
         const emails = getJSON(
             STORAGE.emails,
             []
@@ -895,7 +1135,9 @@
         );
 
         const index = Number(
-            localStorage.getItem(STORAGE.index) || 0
+            localStorage.getItem(
+                STORAGE.index
+            ) || 0
         );
 
         const running = isRunning();
@@ -914,16 +1156,28 @@
             .join("\n");
 
         const statusElement =
-            document.getElementById("svs-status");
+            document.getElementById(
+                "svs-status"
+            );
 
         const outputElement =
-            document.getElementById("svs-output");
+            document.getElementById(
+                "svs-output"
+            );
 
         const logElement =
-            document.getElementById("svs-log");
+            document.getElementById(
+                "svs-log"
+            );
+
+        const mini =
+            document.getElementById(
+                "svs-mini"
+            );
 
         if (statusElement) {
-            statusElement.textContent = statusText;
+            statusElement.textContent =
+                statusText;
         }
 
         if (outputElement) {
@@ -937,6 +1191,27 @@
                 STORAGE.logs,
                 []
             ).join("\n");
+        }
+
+        if (mini) {
+            mini.innerHTML = running
+                ? `${Math.min(
+                    index,
+                    emails.length
+                )}/${emails.length}<br>筛选`
+                : "邮箱<br>筛选";
+
+            mini.classList.toggle(
+                "svs-running",
+                running
+            );
+
+            mini.title = running
+                ? `正在筛选：${Math.min(
+                    index,
+                    emails.length
+                )}/${emails.length}`
+                : "打开 SUSY Email Screener";
         }
     }
 
@@ -952,13 +1227,17 @@
 
         localStorage.setItem(
             STORAGE.logs,
-            JSON.stringify(logs.slice(0, 500))
+            JSON.stringify(
+                logs.slice(0, 500)
+            )
         );
     }
 
     function findEmailInput() {
         const inputs = Array.from(
-            document.querySelectorAll("input")
+            document.querySelectorAll(
+                "input"
+            )
         ).filter(input =>
             !input.disabled &&
             isVisible(input) &&
@@ -970,13 +1249,19 @@
 
         inputs.forEach(input => {
             const type =
-                String(input.type || "").toLowerCase();
+                String(
+                    input.type || ""
+                ).toLowerCase();
 
             const name =
-                String(input.name || "").toLowerCase();
+                String(
+                    input.name || ""
+                ).toLowerCase();
 
             const id =
-                String(input.id || "").toLowerCase();
+                String(
+                    input.id || ""
+                ).toLowerCase();
 
             const placeholder =
                 String(
@@ -1017,7 +1302,9 @@
 
     function findButtonByText(text) {
         const target =
-            String(text).trim().toLowerCase();
+            String(text)
+                .trim()
+                .toLowerCase();
 
         const elements = Array.from(
             document.querySelectorAll(
@@ -1030,16 +1317,19 @@
 
         return (
             elements.find(element => {
-                const elementText = String(
-                    element.innerText ||
-                    element.value ||
-                    element.textContent ||
-                    ""
-                )
-                    .trim()
-                    .toLowerCase();
+                const elementText =
+                    String(
+                        element.innerText ||
+                        element.value ||
+                        element.textContent ||
+                        ""
+                    )
+                        .trim()
+                        .toLowerCase();
 
-                return elementText === target;
+                return (
+                    elementText === target
+                );
             }) || null
         );
     }
@@ -1049,12 +1339,16 @@
 
         const setter =
             Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype,
+                window.HTMLInputElement
+                    .prototype,
                 "value"
             )?.set;
 
         if (setter) {
-            setter.call(input, value);
+            setter.call(
+                input,
+                value
+            );
         } else {
             input.value = value;
         }
@@ -1080,15 +1374,17 @@
 
     function clickElement(element) {
         element.dispatchEvent(
-            new MouseEvent("mousedown", {
-                bubbles: true
-            })
+            new MouseEvent(
+                "mousedown",
+                { bubbles: true }
+            )
         );
 
         element.dispatchEvent(
-            new MouseEvent("mouseup", {
-                bubbles: true
-            })
+            new MouseEvent(
+                "mouseup",
+                { bubbles: true }
+            )
         );
 
         element.click();
@@ -1098,7 +1394,9 @@
         if (!element) return true;
 
         const style =
-            window.getComputedStyle(element);
+            window.getComputedStyle(
+                element
+            );
 
         const className =
             String(
@@ -1107,24 +1405,39 @@
 
         return Boolean(
             element.disabled ||
-            element.getAttribute("disabled") !== null ||
-            element.getAttribute("aria-disabled") ===
-                "true" ||
-            className.includes("disabled") ||
-            style.pointerEvents === "none" ||
+            element.getAttribute(
+                "disabled"
+            ) !== null ||
+            element.getAttribute(
+                "aria-disabled"
+            ) === "true" ||
+            className.includes(
+                "disabled"
+            ) ||
+            className.includes(
+                "disable"
+            ) ||
+            style.pointerEvents ===
+                "none" ||
             style.display === "none" ||
-            style.visibility === "hidden" ||
+            style.visibility ===
+                "hidden" ||
             Number(style.opacity) < 0.3
         );
     }
 
     function isVisible(element) {
-        if (!element || !element.isConnected) {
+        if (
+            !element ||
+            !element.isConnected
+        ) {
             return false;
         }
 
         const style =
-            window.getComputedStyle(element);
+            window.getComputedStyle(
+                element
+            );
 
         const rect =
             element.getBoundingClientRect();
@@ -1140,7 +1453,12 @@
 
     function isOwnPanelElement(element) {
         return Boolean(
-            element?.closest?.("#svs-panel")
+            element?.closest?.(
+                "#svs-panel"
+            ) ||
+            element?.closest?.(
+                "#svs-mini"
+            )
         );
     }
 
@@ -1155,38 +1473,56 @@
             .toLowerCase();
     }
 
-    function waitForElement(getter, timeout) {
-        return new Promise((resolve, reject) => {
-            const start = Date.now();
+    function waitForElement(
+        getter,
+        timeout
+    ) {
+        return new Promise(
+            (resolve, reject) => {
+                const start = Date.now();
 
-            const timer = setInterval(() => {
-                let element = null;
+                const timer =
+                    setInterval(() => {
+                        let element = null;
 
-                try {
-                    element = getter();
-                } catch (error) {
-                    clearInterval(timer);
-                    reject(error);
-                    return;
-                }
+                        try {
+                            element = getter();
+                        } catch (error) {
+                            clearInterval(
+                                timer
+                            );
 
-                if (element) {
-                    clearInterval(timer);
-                    resolve(element);
-                    return;
-                }
+                            reject(error);
+                            return;
+                        }
 
-                if (Date.now() - start >= timeout) {
-                    clearInterval(timer);
+                        if (element) {
+                            clearInterval(
+                                timer
+                            );
 
-                    reject(
-                        new Error(
-                            "等待页面元素超时"
-                        )
-                    );
-                }
-            }, 100);
-        });
+                            resolve(element);
+                            return;
+                        }
+
+                        if (
+                            Date.now() -
+                            start >=
+                            timeout
+                        ) {
+                            clearInterval(
+                                timer
+                            );
+
+                            reject(
+                                new Error(
+                                    "等待页面元素超时"
+                                )
+                            );
+                        }
+                    }, 100);
+            }
+        );
     }
 
     function cleanPageUrl() {
@@ -1197,12 +1533,16 @@
     }
 
     function csvEscape(value) {
-        const text = String(value ?? "");
+        const text =
+            String(value ?? "");
 
         if (/[",\n]/.test(text)) {
             return (
                 '"' +
-                text.replace(/"/g, '""') +
+                text.replace(
+                    /"/g,
+                    '""'
+                ) +
                 '"'
             );
         }
@@ -1213,8 +1553,12 @@
     function getJSON(key, fallback) {
         try {
             return JSON.parse(
-                localStorage.getItem(key) ||
-                JSON.stringify(fallback)
+                localStorage.getItem(
+                    key
+                ) ||
+                JSON.stringify(
+                    fallback
+                )
             );
         } catch {
             return fallback;
