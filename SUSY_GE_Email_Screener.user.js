@@ -2,7 +2,7 @@
 // @name         SUSY GE Email Screener
 // @namespace    MDPI-SUSY-Verification-Screener
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg?da3a8dcae975a41c?1779439589
-// @version      1.0.1
+// @version      1.1
 // @description  逐个测试学者邮箱，记录触发滑动验证的邮箱，不点击 Proceed。
 // @match        https://susy.mdpi.com/special_issue/process/*
 // @grant        GM_setClipboard
