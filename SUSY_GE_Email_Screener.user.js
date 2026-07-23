@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         SUSY GE Email Screener
+// @name         SUSY GE Verification Email Screener
 // @namespace    MDPI-SUSY-Verification-Screener
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg
-// @version      1.2
-// @description  逐个测试学者邮箱，记录触发滑动验证的邮箱，不点击 Proceed。
+// @version      2.0
+// @description  使用同一个 SUSY SI 页面快速筛选触发拖拉验证的学者邮箱，不点击 Proceed。
 // @match        https://susy.mdpi.com/special_issue/process/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
@@ -13,38 +13,87 @@
 (function () {
     "use strict";
 
+    /*
+     * 工作逻辑：
+     *
+     * 1. 在当前 Special Issue 页面填写邮箱。
+     * 2. 点击 Next。
+     * 3. 短暂等待拖拉验证出现。
+     * 4. 出现拖拉验证：记录邮箱。
+     * 5. 未出现拖拉验证：直接跳过。
+     * 6. 刷新同一个 Special Issue 页面，继续下一个邮箱。
+     *
+     * 本脚本：
+     * - 不处理或绕过拖拉验证；
+     * - 不点击 Proceed；
+     * - 不切换 Special Issue；
+     * - 不判断每个 SI 是否超过 5 个 GE。
+     */
+
     const STORAGE = {
-        emails: "susy_verify_emails_v1",
-        index: "susy_verify_index_v1",
-        hits: "susy_verify_hits_v1",
-        results: "susy_verify_results_v1",
-        running: "susy_verify_running_v1",
-        processUrl: "susy_verify_process_url_v1",
-        logs: "susy_verify_logs_v1"
+        emails: "susy_fast_screen_emails_v2",
+        index: "susy_fast_screen_index_v2",
+        hits: "susy_fast_screen_hits_v2",
+        results: "susy_fast_screen_results_v2",
+        running: "susy_fast_screen_running_v2",
+        processUrl: "susy_fast_screen_process_url_v2",
+        logs: "susy_fast_screen_logs_v2"
     };
 
-    const ELEMENT_TIMEOUT = 12000;
-    const RESULT_TIMEOUT = 8000;
-    const CHECK_INTERVAL = 200;
+    /*
+     * 点击 Next 后等待拖拉验证出现的时间。
+     *
+     * 1200 毫秒相对稳妥。
+     * 如果网站响应很快，可以改为 800。
+     * 如果偶尔漏掉验证，可以改为 1500。
+     */
+    const VERIFICATION_WAIT_MS = 1200;
 
+    /*
+     * 页面加载后寻找输入框和 Next 按钮的最长时间。
+     */
+    const ELEMENT_TIMEOUT_MS = 10000;
+
+    /*
+     * 检查拖拉验证的频率。
+     */
+    const CHECK_INTERVAL_MS = 80;
+
+    /*
+     * 完成一个邮箱后，多久刷新当前页面。
+     */
+    const NEXT_EMAIL_DELAY_MS = 120;
+
+    /*
+     * 豆绿色主题。
+     */
     const THEME_COLOR = "#72B89A";
     const THEME_DARK = "#55997D";
     const THEME_LIGHT = "#EAF6F0";
     const THEME_BORDER = "#B8DDCD";
 
+    let processingLocked = false;
+
     ready(() => {
         createPanel();
         setupEscStop();
 
+        /*
+         * 只保存当前打开的这一个 SI 页面。
+         * 查询过程中始终返回这个页面。
+         */
         if (!localStorage.getItem(STORAGE.processUrl)) {
             localStorage.setItem(
                 STORAGE.processUrl,
-                cleanPageUrl()
+                getCurrentCleanUrl()
             );
         }
 
+        /*
+         * 页面刷新后自动接着处理。
+         */
         if (isRunning()) {
-            setTimeout(processCurrentEmail, 600);
+            setTimeout(processCurrentEmail, 300);
         }
     });
 
@@ -99,7 +148,7 @@
             #svs-mini:hover {
                 background: ${THEME_DARK};
                 transform: translateY(-50%) scale(1.07);
-                box-shadow: 0 6px 18px rgba(0,0,0,.3);
+                box-shadow: 0 6px 18px rgba(0,0,0,.30);
             }
 
             #svs-mini.svs-running {
@@ -117,13 +166,13 @@
                 max-height: 88vh;
                 overflow: auto;
                 z-index: 10000000;
+                display: none;
                 background: white;
                 border: 1px solid ${THEME_BORDER};
                 border-radius: 12px;
                 box-shadow: 0 5px 20px rgba(0,0,0,.25);
                 font-family: Arial, sans-serif;
                 color: #222;
-                display: none;
             }
 
             #svs-header {
@@ -201,17 +250,19 @@
         document.head.appendChild(style);
 
         const miniButton = document.createElement("button");
+
         miniButton.id = "svs-mini";
         miniButton.type = "button";
         miniButton.innerHTML = "邮箱<br>筛选";
-        miniButton.title = "打开 SUSY Email Screener";
+        miniButton.title = "打开邮箱验证筛选器";
 
         const panel = document.createElement("div");
+
         panel.id = "svs-panel";
 
         panel.innerHTML = `
             <div id="svs-header">
-                <span>SUSY Verification Screener</span>
+                <span>SUSY 邮箱验证筛选器</span>
 
                 <button
                     id="svs-minimize"
@@ -239,8 +290,9 @@
                     border-radius:8px;
                     line-height:1.5;
                 ">
-                    逐个搜索邮箱，只记录触发滑动验证的邮箱。<br>
-                    不处理验证，也不会点击 Proceed。
+                    固定使用当前 SI 页面快速搜索邮箱。<br>
+                    出现拖拉验证则记录，否则立即跳过。<br>
+                    不点击 Proceed，也不会切换 SI。
                 </div>
 
                 <input
@@ -253,8 +305,8 @@
                 <textarea
                     id="svs-input"
                     class="svs-textarea"
-                    style="height:110px;"
-                    placeholder="可粘贴 CSV、TXT，或者每行一个邮箱"
+                    style="height:105px;"
+                    placeholder="粘贴 CSV、TXT，或者每行一个邮箱"
                 ></textarea>
 
                 <button
@@ -268,7 +320,7 @@
                     id="svs-start"
                     class="svs-btn svs-primary"
                 >
-                    从头开始筛选
+                    从头开始快速筛选
                 </button>
 
                 <button
@@ -289,14 +341,14 @@
                     id="svs-copy"
                     class="svs-btn"
                 >
-                    复制需要验证的邮箱
+                    复制可进入验证的邮箱
                 </button>
 
                 <button
                     id="svs-export"
                     class="svs-btn"
                 >
-                    复制完整结果 CSV
+                    复制完整筛选结果 CSV
                 </button>
 
                 <button
@@ -324,7 +376,7 @@
                     font-weight:bold;
                     color:${THEME_DARK};
                 ">
-                    需要滑动验证的邮箱
+                    出现拖拉验证的邮箱
                 </div>
 
                 <textarea
@@ -397,7 +449,7 @@
             stopRun("用户手动停止");
 
         document.getElementById("svs-copy").onclick =
-            copyVerificationEmails;
+            copyHitEmails;
 
         document.getElementById("svs-export").onclick =
             copyFullResults;
@@ -478,9 +530,12 @@
         reader.onload = () => {
             const text = String(reader.result || "");
 
-            document.getElementById(
-                "svs-input"
-            ).value = text;
+            const input =
+                document.getElementById("svs-input");
+
+            if (input) {
+                input.value = text;
+            }
 
             saveImportedEmails(text);
         };
@@ -526,15 +581,11 @@
             "0"
         );
 
-        log(
-            `成功导入 ${emails.length} 个去重邮箱。`
-        );
+        log(`成功导入 ${emails.length} 个去重邮箱。`);
 
         updatePanel();
 
-        alert(
-            `已导入 ${emails.length} 个邮箱。`
-        );
+        alert(`已导入 ${emails.length} 个邮箱。`);
     }
 
     function extractEmails(text) {
@@ -573,6 +624,14 @@
             return;
         }
 
+        /*
+         * 锁定当前打开的这一个 SI 页面。
+         */
+        localStorage.setItem(
+            STORAGE.processUrl,
+            getCurrentCleanUrl()
+        );
+
         localStorage.setItem(
             STORAGE.index,
             "0"
@@ -594,16 +653,13 @@
         );
 
         localStorage.setItem(
-            STORAGE.processUrl,
-            cleanPageUrl()
-        );
-
-        localStorage.setItem(
             STORAGE.running,
             "1"
         );
 
-        log("开始新的筛选任务。");
+        processingLocked = false;
+
+        log("开始新的快速筛选任务。");
 
         updatePanel();
 
@@ -621,9 +677,12 @@
             return;
         }
 
+        /*
+         * 继续时仍固定使用当前这一个页面。
+         */
         localStorage.setItem(
             STORAGE.processUrl,
-            cleanPageUrl()
+            getCurrentCleanUrl()
         );
 
         localStorage.setItem(
@@ -631,7 +690,9 @@
             "1"
         );
 
-        log("继续筛选任务。");
+        processingLocked = false;
+
+        log("继续快速筛选。");
 
         updatePanel();
 
@@ -643,6 +704,8 @@
             STORAGE.running,
             "0"
         );
+
+        processingLocked = false;
 
         log(reason);
 
@@ -659,6 +722,9 @@
 
     async function processCurrentEmail() {
         if (!isRunning()) return;
+        if (processingLocked) return;
+
+        processingLocked = true;
 
         const emails = getJSON(
             STORAGE.emails,
@@ -672,6 +738,7 @@
         );
 
         if (index >= emails.length) {
+            processingLocked = false;
             finishRun();
             return;
         }
@@ -690,128 +757,171 @@
             const emailInput =
                 await waitForElement(
                     findEmailInput,
-                    ELEMENT_TIMEOUT
+                    ELEMENT_TIMEOUT_MS
                 );
 
-            fillInput(
-                emailInput,
-                email
-            );
+            /*
+             * 先清空输入框，避免上一个邮箱残留。
+             */
+            fillInput(emailInput, "");
+
+            await sleep(30);
+
+            fillInput(emailInput, email);
+
+            await sleep(30);
 
             const nextButton =
                 await waitForElement(
                     () => findButtonByText("next"),
-                    ELEMENT_TIMEOUT
+                    ELEMENT_TIMEOUT_MS
                 );
 
             clickElement(nextButton);
 
-            const result =
-                await detectResult(
-                    RESULT_TIMEOUT
+            /*
+             * 这里只判断拖拉验证。
+             * 不再寻找或等待 Proceed。
+             */
+            const hasVerification =
+                await waitForDragVerification(
+                    VERIFICATION_WAIT_MS
                 );
 
-            saveResult(
-                email,
-                result
-            );
+            if (hasVerification) {
+                saveResult(email, {
+                    status: "NEEDS_VERIFICATION",
+                    eligible: true,
+                    reason: "检测到拖拉验证"
+                });
+            } else {
+                saveResult(email, {
+                    status: "NO_VERIFICATION",
+                    eligible: false,
+                    reason:
+                        `点击 Next 后 ${VERIFICATION_WAIT_MS} 毫秒内未检测到拖拉验证`
+                });
+            }
         } catch (error) {
             saveResult(email, {
                 status: "ERROR",
+                eligible: false,
                 reason:
                     error?.message ||
                     "没有找到邮箱输入框或 Next 按钮"
             });
         }
 
+        processingLocked = false;
+
         moveToNextEmail();
     }
 
-    function detectResult(timeout) {
+    function waitForDragVerification(timeoutMs) {
         return new Promise(resolve => {
             const start = Date.now();
 
-            const timer = setInterval(() => {
+            /*
+             * 先立即检查一次。
+             */
+            if (hasDragVerification()) {
+                resolve(true);
+                return;
+            }
+
+            /*
+             * 使用 MutationObserver 监听页面变化，
+             * 验证框一出现便立即返回，不必等完整时间。
+             */
+            let completed = false;
+
+            const finish = result => {
+                if (completed) return;
+
+                completed = true;
+
+                observer.disconnect();
+                clearInterval(interval);
+                clearTimeout(timeout);
+
+                resolve(result);
+            };
+
+            const observer = new MutationObserver(() => {
                 if (hasDragVerification()) {
-                    clearInterval(timer);
-
-                    resolve({
-                        status: "NEEDS_VERIFICATION",
-                        reason: "检测到滑动验证"
-                    });
-
-                    return;
+                    finish(true);
                 }
+            });
 
-                const proceedButton =
-                    findButtonByText("proceed");
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: [
+                    "class",
+                    "style",
+                    "hidden",
+                    "aria-hidden"
+                ]
+            });
 
-                if (
-                    proceedButton &&
-                    !isDisabledLike(proceedButton)
-                ) {
-                    clearInterval(timer);
-
-                    resolve({
-                        status: "NO_VERIFICATION",
-                        reason:
-                            "检测到 Proceed，但未点击"
-                    });
-
-                    return;
-                }
-
-                const pageMessage =
-                    detectPageMessage();
-
-                if (pageMessage) {
-                    clearInterval(timer);
-
-                    resolve({
-                        status: "OTHER_RESULT",
-                        reason: pageMessage
-                    });
-
+            /*
+             * MutationObserver 之外再轮询，
+             * 防止验证组件只是文字或状态发生变化。
+             */
+            const interval = setInterval(() => {
+                if (hasDragVerification()) {
+                    finish(true);
                     return;
                 }
 
                 if (
-                    Date.now() - start >= timeout
+                    Date.now() - start >= timeoutMs
                 ) {
-                    clearInterval(timer);
-
-                    resolve({
-                        status: "TIMEOUT",
-                        reason:
-                            `等待 ${Math.round(
-                                timeout / 1000
-                            )} 秒后未检测到验证或 Proceed`
-                    });
+                    finish(false);
                 }
-            }, CHECK_INTERVAL);
+            }, CHECK_INTERVAL_MS);
+
+            const timeout = setTimeout(() => {
+                finish(
+                    hasDragVerification()
+                );
+            }, timeoutMs);
         });
     }
 
     function hasDragVerification() {
+        /*
+         * 常见验证组件的 class、id 和 iframe 特征。
+         */
         const selectors = [
             "[class*='slider' i]",
             "[id*='slider' i]",
             "[class*='captcha' i]",
             "[id*='captcha' i]",
             "[class*='verify' i]",
-            "[id*='verify' i]"
+            "[id*='verify' i]",
+            "[class*='drag' i]",
+            "[id*='drag' i]",
+            "iframe[src*='captcha' i]",
+            "iframe[src*='verify' i]"
         ];
 
         for (const selector of selectors) {
-            const elements =
-                document.querySelectorAll(
-                    selector
+            let elements = [];
+
+            try {
+                elements = Array.from(
+                    document.querySelectorAll(selector)
                 );
+            } catch {
+                continue;
+            }
 
             for (const element of elements) {
                 if (
                     !isVisible(element) ||
-                    isOwnPanelElement(element)
+                    isOwnScriptElement(element)
                 ) {
                     continue;
                 }
@@ -819,19 +929,32 @@
                 const text =
                     normalizeText(element);
 
+                const classAndId = (
+                    String(element.className || "") +
+                    " " +
+                    String(element.id || "")
+                ).toLowerCase();
+
                 if (
                     text.includes("drag") ||
                     text.includes("slide") ||
                     text.includes("verify") ||
+                    text.includes("captcha") ||
                     text.includes("拖动") ||
                     text.includes("滑动") ||
-                    text.includes("验证")
+                    text.includes("验证") ||
+                    classAndId.includes("slider") ||
+                    classAndId.includes("captcha") ||
+                    classAndId.includes("verify")
                 ) {
                     return true;
                 }
             }
         }
 
+        /*
+         * 页面提示文字检测。
+         */
         const phrases = [
             "please drag",
             "drag to verify",
@@ -839,9 +962,12 @@
             "drag the slider",
             "complete the verification",
             "please complete verification",
+            "security verification",
             "请拖动",
             "拖动滑块",
-            "滑动验证"
+            "请按住滑块",
+            "滑动验证",
+            "安全验证"
         ];
 
         const elements = Array.from(
@@ -853,7 +979,7 @@
         return elements.some(element => {
             if (
                 !isVisible(element) ||
-                isOwnPanelElement(element)
+                isOwnScriptElement(element)
             ) {
                 return false;
             }
@@ -861,9 +987,12 @@
             const text =
                 normalizeText(element);
 
+            /*
+             * 避免匹配整个页面的大段文本。
+             */
             if (
                 !text ||
-                text.length > 300
+                text.length > 350
             ) {
                 return false;
             }
@@ -872,29 +1001,6 @@
                 text.includes(phrase)
             );
         });
-    }
-
-    function detectPageMessage() {
-        const pageText =
-            normalizeText(document.body);
-
-        const knownMessages = [
-            "the number of proposed ge cannot exceed 5",
-            "cannot exceed 5 at most in each special issue",
-            "email address is invalid",
-            "e-mail address is invalid",
-            "already been invited",
-            "already invited",
-            "cannot be invited",
-            "not found"
-        ];
-
-        const matched =
-            knownMessages.find(message =>
-                pageText.includes(message)
-            );
-
-        return matched || "";
     }
 
     function saveResult(email, result) {
@@ -906,10 +1012,14 @@
         results.push({
             email,
             status: result.status,
+            eligible: result.eligible,
             reason: result.reason,
             checkedAt:
                 new Date().toISOString(),
-            pageUrl: location.href
+            pageUrl:
+                localStorage.getItem(
+                    STORAGE.processUrl
+                ) || getCurrentCleanUrl()
         });
 
         localStorage.setItem(
@@ -947,12 +1057,15 @@
                 );
             }
 
-            log(
-                `需要验证：${email}`
-            );
+            log(`✓ 记录：${email}`);
+        } else if (
+            result.status ===
+            "NO_VERIFICATION"
+        ) {
+            log(`跳过：${email}`);
         } else {
             log(
-                `${result.status}：${email}；${result.reason}`
+                `错误：${email}；${result.reason}`
             );
         }
 
@@ -979,10 +1092,16 @@
             const processUrl =
                 localStorage.getItem(
                     STORAGE.processUrl
-                ) || cleanPageUrl();
+                );
 
-            location.href = processUrl;
-        }, 400);
+            /*
+             * 始终重新打开同一个 SI 页面。
+             * 不存在切换其他 SI 的逻辑。
+             */
+            location.replace(
+                processUrl || getCurrentCleanUrl()
+            );
+        }, NEXT_EMAIL_DELAY_MS);
     }
 
     function finishRun() {
@@ -990,6 +1109,8 @@
             STORAGE.running,
             "0"
         );
+
+        processingLocked = false;
 
         const hits = getJSON(
             STORAGE.hits,
@@ -1001,7 +1122,7 @@
             .join("\n");
 
         log(
-            `筛选完成，共发现 ${hits.length} 个需要验证的邮箱。`
+            `筛选完成，共记录 ${hits.length} 个出现拖拉验证的邮箱。`
         );
 
         updatePanel("筛选完成。");
@@ -1010,6 +1131,9 @@
             GM_setClipboard(emailList);
         }
 
+        /*
+         * 完成后自动展开面板。
+         */
         const panel =
             document.getElementById(
                 "svs-panel"
@@ -1026,16 +1150,17 @@
         }
 
         alert(
-            `筛选完成。\n需要验证的邮箱：${hits.length} 个` +
+            `筛选完成。\n` +
+            `出现拖拉验证的邮箱：${hits.length} 个` +
             (
                 emailList
-                    ? "\n邮箱名单已经复制到剪贴板。"
+                    ? "\n邮箱名单已复制到剪贴板。"
                     : ""
             )
         );
     }
 
-    function copyVerificationEmails() {
+    function copyHitEmails() {
         const hits = getJSON(
             STORAGE.hits,
             []
@@ -1047,7 +1172,7 @@
 
         if (!text) {
             alert(
-                "目前没有需要验证的邮箱。"
+                "目前没有记录到出现拖拉验证的邮箱。"
             );
             return;
         }
@@ -1066,13 +1191,14 @@
         );
 
         if (!results.length) {
-            alert("目前没有检查结果。");
+            alert("目前没有筛选结果。");
             return;
         }
 
         const headers = [
             "email",
             "status",
+            "eligible",
             "reason",
             "checkedAt",
             "pageUrl"
@@ -1094,13 +1220,13 @@
         GM_setClipboard(csv);
 
         alert(
-            "完整结果 CSV 已复制到剪贴板。"
+            "完整筛选结果 CSV 已复制到剪贴板。"
         );
     }
 
     function clearData() {
         const confirmed = confirm(
-            "确定清空脚本保存的邮箱、进度和结果吗？"
+            "确定清空邮箱、筛选进度和结果吗？"
         );
 
         if (!confirmed) return;
@@ -1111,9 +1237,11 @@
             localStorage.removeItem(key);
         });
 
+        processingLocked = false;
+
         localStorage.setItem(
             STORAGE.processUrl,
-            cleanPageUrl()
+            getCurrentCleanUrl()
         );
 
         updatePanel(
@@ -1134,6 +1262,22 @@
             []
         );
 
+        const results = getJSON(
+            STORAGE.results,
+            []
+        );
+
+        const skipped = results.filter(
+            item =>
+                item.status ===
+                "NO_VERIFICATION"
+        ).length;
+
+        const errors = results.filter(
+            item =>
+                item.status === "ERROR"
+        ).length;
+
         const index = Number(
             localStorage.getItem(
                 STORAGE.index
@@ -1148,8 +1292,16 @@
                 index,
                 emails.length
             )}/${emails.length}`,
-            `需要验证：${hits.length}`,
+            `出现拖拉验证：${hits.length}`,
+            `未出现验证并跳过：${skipped}`,
+            `错误：${errors}`,
+            `验证等待时间：${VERIFICATION_WAIT_MS} ms`,
             `运行状态：${running ? "运行中" : "已停止"}`,
+            `固定页面：${
+                localStorage.getItem(
+                    STORAGE.processUrl
+                ) || getCurrentCleanUrl()
+            }`,
             extraMessage
         ]
             .filter(Boolean)
@@ -1207,11 +1359,11 @@
             );
 
             mini.title = running
-                ? `正在筛选：${Math.min(
+                ? `正在筛选 ${Math.min(
                     index,
                     emails.length
                 )}/${emails.length}`
-                : "打开 SUSY Email Screener";
+                : "打开邮箱验证筛选器";
         }
     }
 
@@ -1241,7 +1393,7 @@
         ).filter(input =>
             !input.disabled &&
             isVisible(input) &&
-            !isOwnPanelElement(input)
+            !isOwnScriptElement(input)
         );
 
         let bestInput = null;
@@ -1312,7 +1464,7 @@
             )
         ).filter(element =>
             isVisible(element) &&
-            !isOwnPanelElement(element)
+            !isOwnScriptElement(element)
         );
 
         return (
@@ -1327,9 +1479,7 @@
                         .trim()
                         .toLowerCase();
 
-                return (
-                    elementText === target
-                );
+                return elementText === target;
             }) || null
         );
     }
@@ -1339,16 +1489,12 @@
 
         const setter =
             Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement
-                    .prototype,
+                window.HTMLInputElement.prototype,
                 "value"
             )?.set;
 
         if (setter) {
-            setter.call(
-                input,
-                value
-            );
+            setter.call(input, value);
         } else {
             input.value = value;
         }
@@ -1361,12 +1507,6 @@
 
         input.dispatchEvent(
             new Event("change", {
-                bubbles: true
-            })
-        );
-
-        input.dispatchEvent(
-            new Event("blur", {
                 bubbles: true
             })
         );
@@ -1388,42 +1528,6 @@
         );
 
         element.click();
-    }
-
-    function isDisabledLike(element) {
-        if (!element) return true;
-
-        const style =
-            window.getComputedStyle(
-                element
-            );
-
-        const className =
-            String(
-                element.className || ""
-            ).toLowerCase();
-
-        return Boolean(
-            element.disabled ||
-            element.getAttribute(
-                "disabled"
-            ) !== null ||
-            element.getAttribute(
-                "aria-disabled"
-            ) === "true" ||
-            className.includes(
-                "disabled"
-            ) ||
-            className.includes(
-                "disable"
-            ) ||
-            style.pointerEvents ===
-                "none" ||
-            style.display === "none" ||
-            style.visibility ===
-                "hidden" ||
-            Number(style.opacity) < 0.3
-        );
     }
 
     function isVisible(element) {
@@ -1451,7 +1555,7 @@
         );
     }
 
-    function isOwnPanelElement(element) {
+    function isOwnScriptElement(element) {
         return Boolean(
             element?.closest?.(
                 "#svs-panel"
@@ -1488,31 +1592,22 @@
                         try {
                             element = getter();
                         } catch (error) {
-                            clearInterval(
-                                timer
-                            );
-
+                            clearInterval(timer);
                             reject(error);
                             return;
                         }
 
                         if (element) {
-                            clearInterval(
-                                timer
-                            );
-
+                            clearInterval(timer);
                             resolve(element);
                             return;
                         }
 
                         if (
                             Date.now() -
-                            start >=
-                            timeout
+                            start >= timeout
                         ) {
-                            clearInterval(
-                                timer
-                            );
+                            clearInterval(timer);
 
                             reject(
                                 new Error(
@@ -1520,12 +1615,18 @@
                                 )
                             );
                         }
-                    }, 100);
+                    }, 80);
             }
         );
     }
 
-    function cleanPageUrl() {
+    function sleep(milliseconds) {
+        return new Promise(resolve => {
+            setTimeout(resolve, milliseconds);
+        });
+    }
+
+    function getCurrentCleanUrl() {
         return (
             location.origin +
             location.pathname
