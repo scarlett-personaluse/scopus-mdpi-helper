@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         SUSY GE Verification Email Screener
+// @name         SUSY GE Email Screener
 // @namespace    MDPI-SUSY-Verification-Screener
 // @icon         https://pub.mdpi-res.com/img/design/mdpi-pub-logo-black-small1.svg
-// @version      2.0
-// @description  使用同一个 SUSY SI 页面快速筛选触发拖拉验证的学者邮箱，不点击 Proceed。
+// @version      2.1
+// @description  仅在启动筛选的当前标签页中使用同一个 SUSY SI 页面筛选邮箱，不影响其他特刊标签页。
 // @match        https://susy.mdpi.com/special_issue/process/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
@@ -23,49 +23,64 @@
      * 5. 未出现拖拉验证：直接跳过。
      * 6. 刷新同一个 Special Issue 页面，继续下一个邮箱。
      *
-     * 本脚本：
+     * 重要：
      * - 不处理或绕过拖拉验证；
      * - 不点击 Proceed；
      * - 不切换 Special Issue；
-     * - 不判断每个 SI 是否超过 5 个 GE。
+     * - 筛选只在当前标签页中运行；
+     * - 其他特刊标签页不会自动开始筛选。
      */
 
+    /*
+     * 邮箱、进度和结果继续使用 localStorage。
+     *
+     * 这样即使关闭页面，筛选结果也不会立刻消失。
+     */
     const STORAGE = {
         emails: "susy_fast_screen_emails_v2",
         index: "susy_fast_screen_index_v2",
         hits: "susy_fast_screen_hits_v2",
         results: "susy_fast_screen_results_v2",
-        running: "susy_fast_screen_running_v2",
-        processUrl: "susy_fast_screen_process_url_v2",
         logs: "susy_fast_screen_logs_v2"
     };
 
     /*
-     * 点击 Next 后等待拖拉验证出现的时间。
+     * 运行状态和固定页面使用 sessionStorage。
      *
-     * 1200 毫秒相对稳妥。
-     * 如果网站响应很快，可以改为 800。
-     * 如果偶尔漏掉验证，可以改为 1500。
+     * sessionStorage 的特点：
+     * - 当前标签页刷新后仍然保留；
+     * - 不会与其他标签页共享；
+     * - 因此其他特刊标签页不会自动运行筛选程序。
+     */
+    const SESSION_STORAGE = {
+        running: "susy_fast_screen_running_v3_tab",
+        processUrl: "susy_fast_screen_process_url_v3_tab"
+    };
+
+    /*
+     * 点击 Next 后等待验证框出现的时间。
+     *
+     * 如果偶尔漏掉验证，可以改成 1500 或 2000。
      */
     const VERIFICATION_WAIT_MS = 1200;
 
     /*
-     * 页面加载后寻找输入框和 Next 按钮的最长时间。
+     * 等待邮箱输入框和 Next 按钮的最长时间。
      */
     const ELEMENT_TIMEOUT_MS = 10000;
 
     /*
-     * 检查拖拉验证的频率。
+     * 验证框检测频率。
      */
     const CHECK_INTERVAL_MS = 80;
 
     /*
-     * 完成一个邮箱后，多久刷新当前页面。
+     * 每个邮箱处理完后，多久刷新当前筛选页面。
      */
     const NEXT_EMAIL_DELAY_MS = 120;
 
     /*
-     * 豆绿色主题。
+     * 面板颜色。
      */
     const THEME_COLOR = "#72B89A";
     const THEME_DARK = "#55997D";
@@ -79,21 +94,35 @@
         setupEscStop();
 
         /*
-         * 只保存当前打开的这一个 SI 页面。
-         * 查询过程中始终返回这个页面。
+         * 当前标签页第一次打开时，
+         * 暂时把当前页面记录为本标签页的页面。
+         *
+         * 真正点击“开始筛选”时会再次锁定。
          */
-        if (!localStorage.getItem(STORAGE.processUrl)) {
-            localStorage.setItem(
-                STORAGE.processUrl,
+        if (!sessionStorage.getItem(SESSION_STORAGE.processUrl)) {
+            sessionStorage.setItem(
+                SESSION_STORAGE.processUrl,
                 getCurrentCleanUrl()
             );
         }
 
         /*
-         * 页面刷新后自动接着处理。
+         * 只有同时满足以下条件才自动继续：
+         *
+         * 1. 当前标签页的运行状态为运行中；
+         * 2. 当前页面就是这个标签页锁定的筛选页面。
+         *
+         * 其他新打开的特刊标签页没有运行状态，
+         * 所以不会自动开始处理邮箱。
          */
-        if (isRunning()) {
-            setTimeout(processCurrentEmail, 300);
+        if (
+            isRunning() &&
+            isCurrentProcessPage()
+        ) {
+            setTimeout(
+                processCurrentEmail,
+                300
+            );
         }
     });
 
@@ -102,7 +131,9 @@
             document.addEventListener(
                 "DOMContentLoaded",
                 callback,
-                { once: true }
+                {
+                    once: true
+                }
             );
         } else {
             callback();
@@ -249,14 +280,16 @@
 
         document.head.appendChild(style);
 
-        const miniButton = document.createElement("button");
+        const miniButton =
+            document.createElement("button");
 
         miniButton.id = "svs-mini";
         miniButton.type = "button";
         miniButton.innerHTML = "邮箱<br>筛选";
         miniButton.title = "打开邮箱验证筛选器";
 
-        const panel = document.createElement("div");
+        const panel =
+            document.createElement("div");
 
         panel.id = "svs-panel";
 
@@ -282,16 +315,18 @@
             </div>
 
             <div id="svs-body">
-                <div style="
-                    padding:8px;
-                    margin-bottom:8px;
-                    background:${THEME_LIGHT};
-                    border:1px solid ${THEME_BORDER};
-                    border-radius:8px;
-                    line-height:1.5;
-                ">
-                    固定使用当前 SI 页面快速搜索邮箱。<br>
-                    出现拖拉验证则记录，否则立即跳过。<br>
+                <div
+                    style="
+                        padding:8px;
+                        margin-bottom:8px;
+                        background:${THEME_LIGHT};
+                        border:1px solid ${THEME_BORDER};
+                        border-radius:8px;
+                        line-height:1.5;
+                    "
+                >
+                    仅在当前标签页使用固定 SI 页面筛选。<br>
+                    其他特刊标签页可以正常操作。<br>
                     不点击 Proceed，也不会切换 SI。
                 </div>
 
@@ -299,7 +334,10 @@
                     id="svs-file"
                     type="file"
                     accept=".csv,.txt"
-                    style="width:100%;margin-bottom:7px;"
+                    style="
+                        width:100%;
+                        margin-bottom:7px;
+                    "
                 >
 
                 <textarea
@@ -334,7 +372,7 @@
                     id="svs-stop"
                     class="svs-btn svs-danger"
                 >
-                    停止
+                    停止当前标签页筛选
                 </button>
 
                 <button
@@ -371,11 +409,13 @@
                     "
                 ></div>
 
-                <div style="
-                    margin-top:10px;
-                    font-weight:bold;
-                    color:${THEME_DARK};
-                ">
+                <div
+                    style="
+                        margin-top:10px;
+                        font-weight:bold;
+                        color:${THEME_DARK};
+                    "
+                >
                     出现拖拉验证的邮箱
                 </div>
 
@@ -383,15 +423,20 @@
                     id="svs-output"
                     class="svs-textarea"
                     readonly
-                    style="height:180px;margin-top:5px;"
+                    style="
+                        height:180px;
+                        margin-top:5px;
+                    "
                 ></textarea>
 
                 <details style="margin-top:8px;">
-                    <summary style="
-                        cursor:pointer;
-                        font-weight:bold;
-                        color:${THEME_DARK};
-                    ">
+                    <summary
+                        style="
+                            cursor:pointer;
+                            font-weight:bold;
+                            color:${THEME_DARK};
+                        "
+                    >
                         运行日志
                     </summary>
 
@@ -412,60 +457,79 @@
         document.body.appendChild(miniButton);
         document.body.appendChild(panel);
 
-        miniButton.addEventListener("click", () => {
-            miniButton.style.display = "none";
-            panel.style.display = "block";
-            updatePanel();
-        });
+        miniButton.addEventListener(
+            "click",
+            () => {
+                miniButton.style.display = "none";
+                panel.style.display = "block";
+                updatePanel();
+            }
+        );
 
         document
             .getElementById("svs-minimize")
-            .addEventListener("click", event => {
-                event.preventDefault();
-                event.stopPropagation();
+            .addEventListener(
+                "click",
+                event => {
+                    event.preventDefault();
+                    event.stopPropagation();
 
-                panel.style.display = "none";
-                miniButton.style.display = "block";
-            });
+                    panel.style.display = "none";
+                    miniButton.style.display = "block";
+                }
+            );
 
         makeDraggable(
             panel,
             document.getElementById("svs-header")
         );
 
-        document.getElementById("svs-file").onchange =
-            importFile;
+        document.getElementById(
+            "svs-file"
+        ).onchange = importFile;
 
-        document.getElementById("svs-import").onclick =
-            importTextarea;
+        document.getElementById(
+            "svs-import"
+        ).onclick = importTextarea;
 
-        document.getElementById("svs-start").onclick =
-            startNewRun;
+        document.getElementById(
+            "svs-start"
+        ).onclick = startNewRun;
 
-        document.getElementById("svs-resume").onclick =
-            resumeRun;
+        document.getElementById(
+            "svs-resume"
+        ).onclick = resumeRun;
 
-        document.getElementById("svs-stop").onclick = () =>
-            stopRun("用户手动停止");
+        document.getElementById(
+            "svs-stop"
+        ).onclick = () => {
+            stopRun("用户手动停止当前标签页筛选");
+        };
 
-        document.getElementById("svs-copy").onclick =
-            copyHitEmails;
+        document.getElementById(
+            "svs-copy"
+        ).onclick = copyHitEmails;
 
-        document.getElementById("svs-export").onclick =
-            copyFullResults;
+        document.getElementById(
+            "svs-export"
+        ).onclick = copyFullResults;
 
-        document.getElementById("svs-clear").onclick =
-            clearData;
+        document.getElementById(
+            "svs-clear"
+        ).onclick = clearData;
 
         updatePanel();
     }
 
     function setupEscStop() {
-        document.addEventListener("keydown", event => {
-            if (event.key === "Escape") {
-                stopRun("按下 Esc 停止");
+        document.addEventListener(
+            "keydown",
+            event => {
+                if (event.key === "Escape") {
+                    stopRun("按下 Esc 停止当前标签页筛选");
+                }
             }
-        });
+        );
     }
 
     function makeDraggable(panel, header) {
@@ -473,65 +537,108 @@
         let offsetX = 0;
         let offsetY = 0;
 
-        header.addEventListener("mousedown", event => {
-            if (event.target.id === "svs-minimize") {
-                return;
+        header.addEventListener(
+            "mousedown",
+            event => {
+                if (
+                    event.target.id ===
+                    "svs-minimize"
+                ) {
+                    return;
+                }
+
+                const rect =
+                    panel.getBoundingClientRect();
+
+                dragging = true;
+
+                offsetX =
+                    event.clientX - rect.left;
+
+                offsetY =
+                    event.clientY - rect.top;
+
+                panel.style.left =
+                    rect.left + "px";
+
+                panel.style.top =
+                    rect.top + "px";
+
+                panel.style.right = "auto";
+                panel.style.bottom = "auto";
+                panel.style.transform = "none";
+
+                event.preventDefault();
             }
+        );
 
-            const rect = panel.getBoundingClientRect();
+        document.addEventListener(
+            "mousemove",
+            event => {
+                if (!dragging) {
+                    return;
+                }
 
-            dragging = true;
-            offsetX = event.clientX - rect.left;
-            offsetY = event.clientY - rect.top;
+                const maxLeft =
+                    window.innerWidth -
+                    panel.offsetWidth;
 
-            panel.style.left = rect.left + "px";
-            panel.style.top = rect.top + "px";
-            panel.style.right = "auto";
-            panel.style.bottom = "auto";
-            panel.style.transform = "none";
+                const maxTop =
+                    window.innerHeight -
+                    panel.offsetHeight;
 
-            event.preventDefault();
-        });
+                panel.style.left =
+                    Math.min(
+                        Math.max(
+                            0,
+                            event.clientX - offsetX
+                        ),
+                        Math.max(
+                            0,
+                            maxLeft
+                        )
+                    ) + "px";
 
-        document.addEventListener("mousemove", event => {
-            if (!dragging) return;
+                panel.style.top =
+                    Math.min(
+                        Math.max(
+                            0,
+                            event.clientY - offsetY
+                        ),
+                        Math.max(
+                            0,
+                            maxTop
+                        )
+                    ) + "px";
+            }
+        );
 
-            const maxLeft =
-                window.innerWidth - panel.offsetWidth;
-
-            const maxTop =
-                window.innerHeight - panel.offsetHeight;
-
-            panel.style.left =
-                Math.min(
-                    Math.max(0, event.clientX - offsetX),
-                    Math.max(0, maxLeft)
-                ) + "px";
-
-            panel.style.top =
-                Math.min(
-                    Math.max(0, event.clientY - offsetY),
-                    Math.max(0, maxTop)
-                ) + "px";
-        });
-
-        document.addEventListener("mouseup", () => {
-            dragging = false;
-        });
+        document.addEventListener(
+            "mouseup",
+            () => {
+                dragging = false;
+            }
+        );
     }
 
     function importFile(event) {
-        const file = event.target.files?.[0];
+        const file =
+            event.target.files?.[0];
 
-        if (!file) return;
+        if (!file) {
+            return;
+        }
 
         const reader = new FileReader();
 
         reader.onload = () => {
-            const text = String(reader.result || "");
+            const text =
+                String(reader.result || "");
 
             const input =
-                document.getElementById("svs-input");
+                document.getElementById(
+                    "svs-input"
+                );
 
             if (input) {
                 input.value = text;
@@ -544,19 +651,28 @@
             alert("文件读取失败。");
         };
 
-        reader.readAsText(file, "UTF-8");
+        reader.readAsText(
+            file,
+            "UTF-8"
+        );
     }
 
     function importTextarea() {
         const input =
-            document.getElementById("svs-input");
+            document.getElementById(
+                "svs-input"
+            );
 
-        const text = input
-            ? input.value
-            : "";
+        const text =
+            input
+                ? input.value
+                : "";
 
         if (!text.trim()) {
-            alert("请先粘贴邮箱或导入文件。");
+            alert(
+                "请先粘贴邮箱或导入文件。"
+            );
+
             return;
         }
 
@@ -564,10 +680,14 @@
     }
 
     function saveImportedEmails(text) {
-        const emails = extractEmails(text);
+        const emails =
+            extractEmails(text);
 
         if (!emails.length) {
-            alert("没有识别到有效邮箱。");
+            alert(
+                "没有识别到有效邮箱。"
+            );
+
             return;
         }
 
@@ -581,11 +701,15 @@
             "0"
         );
 
-        log(`成功导入 ${emails.length} 个去重邮箱。`);
+        log(
+            `成功导入 ${emails.length} 个去重邮箱。`
+        );
 
         updatePanel();
 
-        alert(`已导入 ${emails.length} 个邮箱。`);
+        alert(
+            `已导入 ${emails.length} 个邮箱。`
+        );
     }
 
     function extractEmails(text) {
@@ -598,11 +722,16 @@
         const emails = [];
 
         matches.forEach(rawEmail => {
-            const email = rawEmail
-                .trim()
-                .replace(/[;,]+$/, "");
+            const email =
+                rawEmail
+                    .trim()
+                    .replace(
+                        /[;,]+$/,
+                        ""
+                    );
 
-            const key = email.toLowerCase();
+            const key =
+                email.toLowerCase();
 
             if (!seen.has(key)) {
                 seen.add(key);
@@ -620,15 +749,18 @@
         );
 
         if (!emails.length) {
-            alert("请先导入邮箱。");
+            alert(
+                "请先导入邮箱。"
+            );
+
             return;
         }
 
         /*
-         * 锁定当前打开的这一个 SI 页面。
+         * 锁定当前标签页当前打开的特刊页面。
          */
-        localStorage.setItem(
-            STORAGE.processUrl,
+        sessionStorage.setItem(
+            SESSION_STORAGE.processUrl,
             getCurrentCleanUrl()
         );
 
@@ -652,14 +784,19 @@
             "[]"
         );
 
-        localStorage.setItem(
-            STORAGE.running,
+        /*
+         * 运行状态仅属于当前标签页。
+         */
+        sessionStorage.setItem(
+            SESSION_STORAGE.running,
             "1"
         );
 
         processingLocked = false;
 
-        log("开始新的快速筛选任务。");
+        log(
+            "开始新的快速筛选任务。"
+        );
 
         updatePanel();
 
@@ -673,26 +810,31 @@
         );
 
         if (!emails.length) {
-            alert("请先导入邮箱。");
+            alert(
+                "请先导入邮箱。"
+            );
+
             return;
         }
 
         /*
-         * 继续时仍固定使用当前这一个页面。
+         * “继续筛选”时，把当前页面设为本标签页的筛选页面。
          */
-        localStorage.setItem(
-            STORAGE.processUrl,
+        sessionStorage.setItem(
+            SESSION_STORAGE.processUrl,
             getCurrentCleanUrl()
         );
 
-        localStorage.setItem(
-            STORAGE.running,
+        sessionStorage.setItem(
+            SESSION_STORAGE.running,
             "1"
         );
 
         processingLocked = false;
 
-        log("继续快速筛选。");
+        log(
+            "继续快速筛选。"
+        );
 
         updatePanel();
 
@@ -700,8 +842,11 @@
     }
 
     function stopRun(reason) {
-        localStorage.setItem(
-            STORAGE.running,
+        /*
+         * 只停止当前标签页。
+         */
+        sessionStorage.setItem(
+            SESSION_STORAGE.running,
             "0"
         );
 
@@ -714,15 +859,47 @@
 
     function isRunning() {
         return (
-            localStorage.getItem(
-                STORAGE.running
+            sessionStorage.getItem(
+                SESSION_STORAGE.running
             ) === "1"
         );
     }
 
+    /*
+     * 检查当前页面是否是本标签页锁定的筛选页面。
+     */
+    function isCurrentProcessPage() {
+        const processUrl =
+            sessionStorage.getItem(
+                SESSION_STORAGE.processUrl
+            );
+
+        return Boolean(
+            processUrl &&
+            processUrl === getCurrentCleanUrl()
+        );
+    }
+
     async function processCurrentEmail() {
-        if (!isRunning()) return;
-        if (processingLocked) return;
+        if (!isRunning()) {
+            return;
+        }
+
+        /*
+         * 即使当前标签页因为某种原因跳到了其他特刊，
+         * 也不会在其他页面自动填写和点击。
+         */
+        if (!isCurrentProcessPage()) {
+            stopRun(
+                "当前页面不是已锁定的筛选页面，已停止自动处理。"
+            );
+
+            return;
+        }
+
+        if (processingLocked) {
+            return;
+        }
 
         processingLocked = true;
 
@@ -743,7 +920,8 @@
             return;
         }
 
-        const email = emails[index];
+        const email =
+            emails[index];
 
         log(
             `正在检查 ${index + 1}/${emails.length}：${email}`
@@ -761,27 +939,39 @@
                 );
 
             /*
-             * 先清空输入框，避免上一个邮箱残留。
+             * 清空旧邮箱。
              */
-            fillInput(emailInput, "");
+            fillInput(
+                emailInput,
+                ""
+            );
 
             await sleep(30);
 
-            fillInput(emailInput, email);
+            /*
+             * 填写当前邮箱。
+             */
+            fillInput(
+                emailInput,
+                email
+            );
 
             await sleep(30);
 
             const nextButton =
                 await waitForElement(
-                    () => findButtonByText("next"),
+                    () =>
+                        findButtonByText(
+                            "next"
+                        ),
                     ELEMENT_TIMEOUT_MS
                 );
 
             clickElement(nextButton);
 
             /*
-             * 这里只判断拖拉验证。
-             * 不再寻找或等待 Proceed。
+             * 只检测拖拉验证是否出现。
+             * 不点击或处理验证组件。
              */
             const hasVerification =
                 await waitForDragVerification(
@@ -789,27 +979,39 @@
                 );
 
             if (hasVerification) {
-                saveResult(email, {
-                    status: "NEEDS_VERIFICATION",
-                    eligible: true,
-                    reason: "检测到拖拉验证"
-                });
+                saveResult(
+                    email,
+                    {
+                        status:
+                            "NEEDS_VERIFICATION",
+                        eligible: true,
+                        reason:
+                            "检测到拖拉验证"
+                    }
+                );
             } else {
-                saveResult(email, {
-                    status: "NO_VERIFICATION",
-                    eligible: false,
-                    reason:
-                        `点击 Next 后 ${VERIFICATION_WAIT_MS} 毫秒内未检测到拖拉验证`
-                });
+                saveResult(
+                    email,
+                    {
+                        status:
+                            "NO_VERIFICATION",
+                        eligible: false,
+                        reason:
+                            `点击 Next 后 ${VERIFICATION_WAIT_MS} 毫秒内未检测到拖拉验证`
+                    }
+                );
             }
         } catch (error) {
-            saveResult(email, {
-                status: "ERROR",
-                eligible: false,
-                reason:
-                    error?.message ||
-                    "没有找到邮箱输入框或 Next 按钮"
-            });
+            saveResult(
+                email,
+                {
+                    status: "ERROR",
+                    eligible: false,
+                    reason:
+                        error?.message ||
+                        "没有找到邮箱输入框或 Next 按钮"
+                }
+            );
         }
 
         processingLocked = false;
@@ -817,26 +1019,27 @@
         moveToNextEmail();
     }
 
-    function waitForDragVerification(timeoutMs) {
+    function waitForDragVerification(
+        timeoutMs
+    ) {
         return new Promise(resolve => {
             const start = Date.now();
 
             /*
-             * 先立即检查一次。
+             * 页面上可能已经存在验证框，
+             * 因此先检查一次。
              */
             if (hasDragVerification()) {
                 resolve(true);
                 return;
             }
 
-            /*
-             * 使用 MutationObserver 监听页面变化，
-             * 验证框一出现便立即返回，不必等完整时间。
-             */
             let completed = false;
 
             const finish = result => {
-                if (completed) return;
+                if (completed) {
+                    return;
+                }
 
                 completed = true;
 
@@ -847,52 +1050,65 @@
                 resolve(result);
             };
 
-            const observer = new MutationObserver(() => {
-                if (hasDragVerification()) {
-                    finish(true);
-                }
-            });
+            /*
+             * 监听页面元素变化。
+             */
+            const observer =
+                new MutationObserver(() => {
+                    if (
+                        hasDragVerification()
+                    ) {
+                        finish(true);
+                    }
+                });
 
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: [
-                    "class",
-                    "style",
-                    "hidden",
-                    "aria-hidden"
-                ]
-            });
+            observer.observe(
+                document.body,
+                {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: [
+                        "class",
+                        "style",
+                        "hidden",
+                        "aria-hidden"
+                    ]
+                }
+            );
 
             /*
-             * MutationObserver 之外再轮询，
-             * 防止验证组件只是文字或状态发生变化。
+             * 同时轮询，避免组件只改变文本或显示状态。
              */
-            const interval = setInterval(() => {
-                if (hasDragVerification()) {
-                    finish(true);
-                    return;
-                }
+            const interval =
+                setInterval(() => {
+                    if (
+                        hasDragVerification()
+                    ) {
+                        finish(true);
+                        return;
+                    }
 
-                if (
-                    Date.now() - start >= timeoutMs
-                ) {
-                    finish(false);
-                }
-            }, CHECK_INTERVAL_MS);
+                    if (
+                        Date.now() - start >=
+                        timeoutMs
+                    ) {
+                        finish(false);
+                    }
+                }, CHECK_INTERVAL_MS);
 
-            const timeout = setTimeout(() => {
-                finish(
-                    hasDragVerification()
-                );
-            }, timeoutMs);
+            const timeout =
+                setTimeout(() => {
+                    finish(
+                        hasDragVerification()
+                    );
+                }, timeoutMs);
         });
     }
 
     function hasDragVerification() {
         /*
-         * 常见验证组件的 class、id 和 iframe 特征。
+         * 常见拖动验证组件的选择器。
          */
         const selectors = [
             "[class*='slider' i]",
@@ -912,7 +1128,9 @@
 
             try {
                 elements = Array.from(
-                    document.querySelectorAll(selector)
+                    document.querySelectorAll(
+                        selector
+                    )
                 );
             } catch {
                 continue;
@@ -930,9 +1148,13 @@
                     normalizeText(element);
 
                 const classAndId = (
-                    String(element.className || "") +
+                    String(
+                        element.className || ""
+                    ) +
                     " " +
-                    String(element.id || "")
+                    String(
+                        element.id || ""
+                    )
                 ).toLowerCase();
 
                 if (
@@ -953,7 +1175,7 @@
         }
 
         /*
-         * 页面提示文字检测。
+         * 页面提示文字。
          */
         const phrases = [
             "please drag",
@@ -988,7 +1210,7 @@
                 normalizeText(element);
 
             /*
-             * 避免匹配整个页面的大段文本。
+             * 避免读取整页超长文本导致误判。
              */
             if (
                 !text ||
@@ -997,8 +1219,9 @@
                 return false;
             }
 
-            return phrases.some(phrase =>
-                text.includes(phrase)
+            return phrases.some(
+                phrase =>
+                    text.includes(phrase)
             );
         });
     }
@@ -1017,9 +1240,10 @@
             checkedAt:
                 new Date().toISOString(),
             pageUrl:
-                localStorage.getItem(
-                    STORAGE.processUrl
-                ) || getCurrentCleanUrl()
+                sessionStorage.getItem(
+                    SESSION_STORAGE.processUrl
+                ) ||
+                getCurrentCleanUrl()
         });
 
         localStorage.setItem(
@@ -1057,12 +1281,16 @@
                 );
             }
 
-            log(`✓ 记录：${email}`);
+            log(
+                `✓ 记录：${email}`
+            );
         } else if (
             result.status ===
             "NO_VERIFICATION"
         ) {
-            log(`跳过：${email}`);
+            log(
+                `跳过：${email}`
+            );
         } else {
             log(
                 `错误：${email}；${result.reason}`
@@ -1086,27 +1314,44 @@
 
         updatePanel();
 
-        if (!isRunning()) return;
+        if (!isRunning()) {
+            return;
+        }
 
         setTimeout(() => {
+            /*
+             * 再次确认运行状态，
+             * 防止用户在延迟期间点击停止。
+             */
+            if (!isRunning()) {
+                return;
+            }
+
             const processUrl =
-                localStorage.getItem(
-                    STORAGE.processUrl
+                sessionStorage.getItem(
+                    SESSION_STORAGE.processUrl
                 );
 
+            if (!processUrl) {
+                stopRun(
+                    "没有找到当前标签页的固定筛选页面。"
+                );
+
+                return;
+            }
+
             /*
-             * 始终重新打开同一个 SI 页面。
-             * 不存在切换其他 SI 的逻辑。
+             * 当前筛选标签页始终返回同一个特刊页面。
+             *
+             * 其他标签页完全不受影响。
              */
-            location.replace(
-                processUrl || getCurrentCleanUrl()
-            );
+            location.replace(processUrl);
         }, NEXT_EMAIL_DELAY_MS);
     }
 
     function finishRun() {
-        localStorage.setItem(
-            STORAGE.running,
+        sessionStorage.setItem(
+            SESSION_STORAGE.running,
             "0"
         );
 
@@ -1117,22 +1362,25 @@
             []
         );
 
-        const emailList = hits
-            .map(item => item.email)
-            .join("\n");
+        const emailList =
+            hits
+                .map(item => item.email)
+                .join("\n");
 
         log(
             `筛选完成，共记录 ${hits.length} 个出现拖拉验证的邮箱。`
         );
 
-        updatePanel("筛选完成。");
+        updatePanel(
+            "筛选完成。"
+        );
 
         if (emailList) {
             GM_setClipboard(emailList);
         }
 
         /*
-         * 完成后自动展开面板。
+         * 完成后展开面板。
          */
         const panel =
             document.getElementById(
@@ -1166,14 +1414,16 @@
             []
         );
 
-        const text = hits
-            .map(item => item.email)
-            .join("\n");
+        const text =
+            hits
+                .map(item => item.email)
+                .join("\n");
 
         if (!text) {
             alert(
                 "目前没有记录到出现拖拉验证的邮箱。"
             );
+
             return;
         }
 
@@ -1191,7 +1441,10 @@
         );
 
         if (!results.length) {
-            alert("目前没有筛选结果。");
+            alert(
+                "目前没有筛选结果。"
+            );
+
             return;
         }
 
@@ -1229,18 +1482,36 @@
             "确定清空邮箱、筛选进度和结果吗？"
         );
 
-        if (!confirmed) return;
+        if (!confirmed) {
+            return;
+        }
 
+        /*
+         * 清空共享的邮箱和结果数据。
+         */
         Object.values(
             STORAGE
         ).forEach(key => {
             localStorage.removeItem(key);
         });
 
+        /*
+         * 清空当前标签页的运行状态。
+         */
+        Object.values(
+            SESSION_STORAGE
+        ).forEach(key => {
+            sessionStorage.removeItem(key);
+        });
+
         processingLocked = false;
 
-        localStorage.setItem(
-            STORAGE.processUrl,
+        /*
+         * 清空后把当前页面作为默认页面，
+         * 但不会自动运行。
+         */
+        sessionStorage.setItem(
+            SESSION_STORAGE.processUrl,
             getCurrentCleanUrl()
         );
 
@@ -1267,16 +1538,19 @@
             []
         );
 
-        const skipped = results.filter(
-            item =>
-                item.status ===
-                "NO_VERIFICATION"
-        ).length;
+        const skipped =
+            results.filter(
+                item =>
+                    item.status ===
+                    "NO_VERIFICATION"
+            ).length;
 
-        const errors = results.filter(
-            item =>
-                item.status === "ERROR"
-        ).length;
+        const errors =
+            results.filter(
+                item =>
+                    item.status ===
+                    "ERROR"
+            ).length;
 
         const index = Number(
             localStorage.getItem(
@@ -1284,24 +1558,49 @@
             ) || 0
         );
 
-        const running = isRunning();
+        const running =
+            isRunning();
+
+        const fixedPage =
+            sessionStorage.getItem(
+                SESSION_STORAGE.processUrl
+            ) ||
+            getCurrentCleanUrl();
+
+        const currentPageMatches =
+            fixedPage ===
+            getCurrentCleanUrl();
 
         const statusText = [
             `邮箱总数：${emails.length}`,
+
             `已处理：${Math.min(
                 index,
                 emails.length
             )}/${emails.length}`,
+
             `出现拖拉验证：${hits.length}`,
+
             `未出现验证并跳过：${skipped}`,
+
             `错误：${errors}`,
+
             `验证等待时间：${VERIFICATION_WAIT_MS} ms`,
-            `运行状态：${running ? "运行中" : "已停止"}`,
-            `固定页面：${
-                localStorage.getItem(
-                    STORAGE.processUrl
-                ) || getCurrentCleanUrl()
+
+            `当前标签页状态：${
+                running
+                    ? "运行中"
+                    : "已停止"
             }`,
+
+            `当前页面是否为筛选页面：${
+                currentPageMatches
+                    ? "是"
+                    : "否"
+            }`,
+
+            `固定页面：${fixedPage}`,
+
             extraMessage
         ]
             .filter(Boolean)
@@ -1333,37 +1632,43 @@
         }
 
         if (outputElement) {
-            outputElement.value = hits
-                .map(item => item.email)
-                .join("\n");
+            outputElement.value =
+                hits
+                    .map(
+                        item => item.email
+                    )
+                    .join("\n");
         }
 
         if (logElement) {
-            logElement.value = getJSON(
-                STORAGE.logs,
-                []
-            ).join("\n");
+            logElement.value =
+                getJSON(
+                    STORAGE.logs,
+                    []
+                ).join("\n");
         }
 
         if (mini) {
-            mini.innerHTML = running
-                ? `${Math.min(
-                    index,
-                    emails.length
-                )}/${emails.length}<br>筛选`
-                : "邮箱<br>筛选";
+            mini.innerHTML =
+                running
+                    ? `${Math.min(
+                        index,
+                        emails.length
+                    )}/${emails.length}<br>筛选`
+                    : "邮箱<br>筛选";
 
             mini.classList.toggle(
                 "svs-running",
                 running
             );
 
-            mini.title = running
-                ? `正在筛选 ${Math.min(
-                    index,
-                    emails.length
-                )}/${emails.length}`
-                : "打开邮箱验证筛选器";
+            mini.title =
+                running
+                    ? `当前标签页正在筛选 ${Math.min(
+                        index,
+                        emails.length
+                    )}/${emails.length}`
+                    : "打开邮箱验证筛选器";
         }
     }
 
@@ -1386,15 +1691,16 @@
     }
 
     function findEmailInput() {
-        const inputs = Array.from(
-            document.querySelectorAll(
-                "input"
-            )
-        ).filter(input =>
-            !input.disabled &&
-            isVisible(input) &&
-            !isOwnScriptElement(input)
-        );
+        const inputs =
+            Array.from(
+                document.querySelectorAll(
+                    "input"
+                )
+            ).filter(input =>
+                !input.disabled &&
+                isVisible(input) &&
+                !isOwnScriptElement(input)
+            );
 
         let bestInput = null;
         let bestScore = -1;
@@ -1447,9 +1753,11 @@
             }
         });
 
-        return bestScore > 0
-            ? bestInput
-            : null;
+        return (
+            bestScore > 0
+                ? bestInput
+                : null
+        );
     }
 
     function findButtonByText(text) {
@@ -1458,14 +1766,15 @@
                 .trim()
                 .toLowerCase();
 
-        const elements = Array.from(
-            document.querySelectorAll(
-                "button, input[type='button'], input[type='submit'], a"
-            )
-        ).filter(element =>
-            isVisible(element) &&
-            !isOwnScriptElement(element)
-        );
+        const elements =
+            Array.from(
+                document.querySelectorAll(
+                    "button, input[type='button'], input[type='submit'], a"
+                )
+            ).filter(element =>
+                isVisible(element) &&
+                !isOwnScriptElement(element)
+            );
 
         return (
             elements.find(element => {
@@ -1479,14 +1788,21 @@
                         .trim()
                         .toLowerCase();
 
-                return elementText === target;
-            }) || null
+                return (
+                    elementText === target
+                );
+            }) ||
+            null
         );
     }
 
     function fillInput(input, value) {
         input.focus();
 
+        /*
+         * 使用原生 value setter，
+         * 兼容 React、Vue 等前端框架监听输入值。
+         */
         const setter =
             Object.getOwnPropertyDescriptor(
                 window.HTMLInputElement.prototype,
@@ -1494,21 +1810,30 @@
             )?.set;
 
         if (setter) {
-            setter.call(input, value);
+            setter.call(
+                input,
+                value
+            );
         } else {
             input.value = value;
         }
 
         input.dispatchEvent(
-            new Event("input", {
-                bubbles: true
-            })
+            new Event(
+                "input",
+                {
+                    bubbles: true
+                }
+            )
         );
 
         input.dispatchEvent(
-            new Event("change", {
-                bubbles: true
-            })
+            new Event(
+                "change",
+                {
+                    bubbles: true
+                }
+            )
         );
     }
 
@@ -1516,14 +1841,18 @@
         element.dispatchEvent(
             new MouseEvent(
                 "mousedown",
-                { bubbles: true }
+                {
+                    bubbles: true
+                }
             )
         );
 
         element.dispatchEvent(
             new MouseEvent(
                 "mouseup",
-                { bubbles: true }
+                {
+                    bubbles: true
+                }
             )
         );
 
@@ -1572,7 +1901,10 @@
             element?.textContent ||
             ""
         )
-            .replace(/\s+/g, " ")
+            .replace(
+                /\s+/g,
+                " "
+            )
             .trim()
             .toLowerCase();
     }
@@ -1583,7 +1915,8 @@
     ) {
         return new Promise(
             (resolve, reject) => {
-                const start = Date.now();
+                const start =
+                    Date.now();
 
                 const timer =
                     setInterval(() => {
@@ -1604,8 +1937,8 @@
                         }
 
                         if (
-                            Date.now() -
-                            start >= timeout
+                            Date.now() - start >=
+                            timeout
                         ) {
                             clearInterval(timer);
 
@@ -1622,11 +1955,18 @@
 
     function sleep(milliseconds) {
         return new Promise(resolve => {
-            setTimeout(resolve, milliseconds);
+            setTimeout(
+                resolve,
+                milliseconds
+            );
         });
     }
 
     function getCurrentCleanUrl() {
+        /*
+         * 不保留查询参数和 hash，
+         * 只保留域名与页面路径。
+         */
         return (
             location.origin +
             location.pathname
@@ -1637,7 +1977,9 @@
         const text =
             String(value ?? "");
 
-        if (/[",\n]/.test(text)) {
+        if (
+            /[",\n]/.test(text)
+        ) {
             return (
                 '"' +
                 text.replace(
@@ -1651,7 +1993,10 @@
         return text;
     }
 
-    function getJSON(key, fallback) {
+    function getJSON(
+        key,
+        fallback
+    ) {
         try {
             return JSON.parse(
                 localStorage.getItem(
