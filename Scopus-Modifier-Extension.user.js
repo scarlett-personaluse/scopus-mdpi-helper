@@ -1,28 +1,33 @@
 // ==UserScript==
 // @name         Scopus Modifier Extension
 // @namespace    http://tampermonkey.net/
-// @version      5.8
+// @version      5.9
 // @icon64       https://cdn.elsevier.io/verona/includes/favicons/favicon-96x96.png
 // @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
 // @author       Jiali Tang, modified from SKDAY
 // @contributor  liqi0601 (Original Author)
 // @match        https://www.scopus.com/authid/detail.uri?*
 // @match        https://www2.scopus.com/authid/detail.uri?*
-// @match        https://susy.mdpi.com/special_issue/process/1877901*
+// @match        https://susy.mdpi.com/special_issue/process/*
 // @match        https://pubpeer.org/*
 // @match        https://retractiondatabase.org/RetractionSearch.aspx*
 // @match        *://*/*
 // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
 // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
 // @grant        GM_setClipboard
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      www.scopus.com
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    const MDPI_INTERNAL_URL =
+    const DEFAULT_MDPI_INTERNAL_URL =
         "https://susy.mdpi.com/special_issue/process/1877901";
+
+    const MDPI_URL_STORAGE_KEY =
+        "scopusHelperMdpiInternalUrl";
 
     const PUBPEER_SEARCH_URL =
         "https://pubpeer.org/search?q=";
@@ -32,7 +37,7 @@
     if (url.includes("scopus.com/authid/detail.uri")) {
         runScopusPage();
     }
-    else if (url.includes("susy.mdpi.com/special_issue/process/1877901")) {
+    else if (isMdpiProcessPage()) {
         runMdpiPage();
     }
     else if (url.includes("pubpeer.org")) {
@@ -43,6 +48,7 @@
     }
 
     createSelectedEmailMdpiButton();
+    createMdpiSettingsLauncher();
 
     // =====================================================
     // Scopus
@@ -170,10 +176,7 @@
 
                     GM_setClipboard(email);
 
-                    window.open(
-                        `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(email)}`,
-                        "_blank"
-                    );
+                    openMdpiForEmail(email);
                 }
             },
 
@@ -259,6 +262,25 @@
             bar.appendChild(btn);
 
         });
+
+        const settingsBtn = document.createElement("button");
+
+        settingsBtn.textContent = "⚙ MDPI网页";
+
+        Object.assign(settingsBtn.style, {
+            padding: "8px 12px",
+            border: "1px solid #1677ff",
+            borderRadius: "8px",
+            background: "#ffffff",
+            color: "#1677ff",
+            cursor: "pointer",
+            fontSize: "13px",
+            fontWeight: "600"
+        });
+
+        settingsBtn.onclick = showMdpiSettingsDialog;
+
+        bar.appendChild(settingsBtn);
 
         document.body.appendChild(bar);
     }
@@ -356,12 +378,266 @@
 
                 GM_setClipboard(currentEmail);
 
-                window.open(
-                    `${MDPI_INTERNAL_URL}?geEmail=${encodeURIComponent(currentEmail)}`,
-                    "_blank"
-                );
+                openMdpiForEmail(currentEmail);
             };
         });
+    }
+
+    // =====================================================
+    // MDPI URL Settings
+    // =====================================================
+
+    function getMdpiInternalUrl() {
+
+        return GM_getValue(
+            MDPI_URL_STORAGE_KEY,
+            DEFAULT_MDPI_INTERNAL_URL
+        );
+    }
+
+    function normalizeMdpiUrl(rawUrl) {
+
+        const value = (rawUrl || "").trim();
+
+        if (!value) {
+            throw new Error("请输入 MDPI 内部网页地址。");
+        }
+
+        let parsed;
+
+        try {
+            parsed = new URL(value);
+        } catch (error) {
+            throw new Error("网页地址格式不正确，请输入完整的 https:// 地址。");
+        }
+
+        if (
+            parsed.protocol !== "https:" ||
+            parsed.hostname !== "susy.mdpi.com" ||
+            !parsed.pathname.startsWith("/special_issue/process/")
+        ) {
+            throw new Error(
+                "请输入 https://susy.mdpi.com/special_issue/process/... 格式的网页。"
+            );
+        }
+
+        parsed.search = "";
+        parsed.hash = "";
+
+        return parsed.toString().replace(/\/$/, "");
+    }
+
+    function buildMdpiUrl(email) {
+
+        const target = new URL(getMdpiInternalUrl());
+
+        target.searchParams.set("geEmail", email);
+
+        return target.toString();
+    }
+
+    function openMdpiForEmail(email) {
+
+        window.open(buildMdpiUrl(email), "_blank");
+    }
+
+    function isMdpiProcessPage() {
+
+        return (
+            window.location.hostname === "susy.mdpi.com" &&
+            window.location.pathname.startsWith("/special_issue/process/")
+        );
+    }
+
+    function currentMdpiPageUrl() {
+
+        if (!isMdpiProcessPage()) return "";
+
+        return `${window.location.origin}${window.location.pathname}`
+            .replace(/\/$/, "");
+    }
+
+    function createMdpiSettingsLauncher() {
+
+        if (!isMdpiProcessPage()) return;
+
+        window.addEventListener("load", () => {
+
+            if (document.getElementById("mdpi-url-settings-launcher")) return;
+
+            const btn = document.createElement("button");
+
+            btn.id = "mdpi-url-settings-launcher";
+            btn.textContent = "⚙ 设置为邮箱验证页";
+
+            Object.assign(btn.style, {
+                position: "fixed",
+                right: "20px",
+                bottom: "20px",
+                zIndex: "999999",
+                padding: "9px 14px",
+                border: "none",
+                borderRadius: "8px",
+                background: "#1677ff",
+                color: "white",
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: "700",
+                boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
+            });
+
+            btn.onclick = showMdpiSettingsDialog;
+
+            document.body.appendChild(btn);
+        });
+    }
+
+    function showMdpiSettingsDialog() {
+
+        const existing = document.getElementById("mdpi-url-settings-overlay");
+
+        if (existing) existing.remove();
+
+        const overlay = document.createElement("div");
+        overlay.id = "mdpi-url-settings-overlay";
+
+        Object.assign(overlay.style, {
+            position: "fixed",
+            inset: "0",
+            zIndex: "1000000",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.38)"
+        });
+
+        const panel = document.createElement("div");
+
+        Object.assign(panel.style, {
+            width: "min(620px, calc(100vw - 40px))",
+            boxSizing: "border-box",
+            padding: "22px",
+            borderRadius: "12px",
+            background: "#ffffff",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.28)",
+            fontFamily: "Arial, sans-serif"
+        });
+
+        const title = document.createElement("div");
+        title.textContent = "MDPI 邮箱验证网页";
+        Object.assign(title.style, {
+            marginBottom: "8px",
+            color: "#1f1f1f",
+            fontSize: "18px",
+            fontWeight: "700"
+        });
+
+        const description = document.createElement("div");
+        description.textContent =
+            "保存后会一直使用这个网页，除非你再次修改或恢复默认。";
+        Object.assign(description.style, {
+            marginBottom: "14px",
+            color: "#595959",
+            fontSize: "13px",
+            lineHeight: "1.5"
+        });
+
+        const input = document.createElement("input");
+        input.type = "url";
+        input.value = getMdpiInternalUrl();
+        input.placeholder =
+            "https://susy.mdpi.com/special_issue/process/......";
+        Object.assign(input.style, {
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "10px 12px",
+            border: "1px solid #d9d9d9",
+            borderRadius: "7px",
+            fontSize: "14px"
+        });
+
+        const status = document.createElement("div");
+        Object.assign(status.style, {
+            minHeight: "20px",
+            marginTop: "8px",
+            color: "#cf1322",
+            fontSize: "12px"
+        });
+
+        const actions = document.createElement("div");
+        Object.assign(actions.style, {
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            gap: "8px",
+            marginTop: "10px"
+        });
+
+        function addAction(text, color, handler, outlined = false) {
+
+            const btn = document.createElement("button");
+            btn.textContent = text;
+            Object.assign(btn.style, {
+                padding: "8px 12px",
+                border: outlined ? `1px solid ${color}` : "none",
+                borderRadius: "7px",
+                background: outlined ? "#ffffff" : color,
+                color: outlined ? color : "#ffffff",
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: "600"
+            });
+            btn.onclick = handler;
+            actions.appendChild(btn);
+        }
+
+        const currentPage = currentMdpiPageUrl();
+
+        if (currentPage) {
+            addAction("使用当前页面", "#722ed1", () => {
+                input.value = currentPage;
+                status.textContent = "已填入当前页面，请点击“保存”。";
+                status.style.color = "#531dab";
+            }, true);
+        }
+
+        addAction("恢复默认", "#8c8c8c", () => {
+            input.value = DEFAULT_MDPI_INTERNAL_URL;
+            status.textContent = "已填入默认网页，请点击“保存”。";
+            status.style.color = "#595959";
+        }, true);
+
+        addAction("取消", "#8c8c8c", () => overlay.remove(), true);
+
+        addAction("保存", "#1677ff", () => {
+
+            try {
+                const normalized = normalizeMdpiUrl(input.value);
+                GM_setValue(MDPI_URL_STORAGE_KEY, normalized);
+                input.value = normalized;
+                status.textContent = "已保存。以后会继续使用这个网页。";
+                status.style.color = "#389e0d";
+                setTimeout(() => overlay.remove(), 700);
+            } catch (error) {
+                status.textContent = error.message;
+                status.style.color = "#cf1322";
+            }
+        });
+
+        panel.appendChild(title);
+        panel.appendChild(description);
+        panel.appendChild(input);
+        panel.appendChild(status);
+        panel.appendChild(actions);
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener("mousedown", event => {
+            if (event.target === overlay) overlay.remove();
+        });
+
+        input.focus();
+        input.select();
     }
 
     // =====================================================
