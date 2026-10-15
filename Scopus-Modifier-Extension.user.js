@@ -1,8 +1,10 @@
+
  // ==UserScript==
  // @name         Scopus Modifier Extension
  // @namespace    http://tampermonkey.net/
- // @version      6.0
- // @description  Scopus quick screening + MDPI / PubPeer / Retraction tools
+ // @version      6.2
+ // @icon64       https://cdn.elsevier.io/verona/includes/favicons/favicon-96x96.png
+ // @description  Scopus screening + MDPI / PubPeer / Retraction / Google tools
  // @author       Jiali Tang, modified from SKDAY
  // @contributor  liqi0601 (Original Author)
  // @match        https://www.scopus.com/authid/detail.uri*
@@ -26,7 +28,7 @@
      // 1. CONFIGURATION
      // =====================================================
 
-     const VERSION = "6.0";
+     const VERSION = "6.2";
 
      const DEFAULT_MDPI_INTERNAL_URL =
          "https://susy.mdpi.com/special_issue/process/1877901";
@@ -34,30 +36,29 @@
      const MDPI_URL_STORAGE_KEY =
          "scopusHelperMdpiInternalUrl";
 
-     const PUBPEER_SEARCH_URL =
+     const PUBPEER_URL =
          "https://pubpeer.org/search?q=";
 
-     const RETRACTION_BASE_URL =
+     const RETRACTION_URL =
          "https://retractiondatabase.org/RetractionSearch.aspx";
 
-     const SCOPUS_BAR_ID = "scopus-ge-button-bar";
+     const BAR_ID =
+         "scopus-ge-button-bar";
 
-     const SELECTED_EMAIL_BUTTON_ID =
+     const EMAIL_BUTTON_ID =
          "selected-email-mdpi-btn";
 
-     const MDPI_SETTINGS_ID =
-         "mdpi-url-settings-overlay";
-
-     const hostname = window.location.hostname;
+     const hostname =
+         window.location.hostname.toLowerCase();
 
      // =====================================================
-     // 2. PAGE IDENTIFICATION
+     // 2. PAGE DETECTION
      // =====================================================
 
      function isScopusPage() {
          return (
-             /(^|\.)scopus\.com$/i.test(hostname) &&
-             window.location.pathname.includes("/authid/detail.uri")
+             ["www.scopus.com", "www2.scopus.com"].includes(hostname) &&
+             window.location.pathname === "/authid/detail.uri"
          );
      }
 
@@ -70,20 +71,16 @@
          );
      }
 
-     function isPubPeerPage() {
-         return hostname === "pubpeer.org";
-     }
-
      function isRetractionPage() {
          return (
              hostname === "retractiondatabase.org" &&
-             window.location.pathname.toLowerCase()
-                 .includes("retractionsearch.aspx")
+             window.location.pathname.toLowerCase() ===
+             "/retractionsearch.aspx"
          );
      }
 
      // =====================================================
-     // 3. GENERAL HELPERS
+     // 3. COMMON HELPERS
      // =====================================================
 
      function normalizeSpace(value) {
@@ -92,40 +89,39 @@
              .trim();
      }
 
-     function formatName(scopusName) {
+     function cleanName(value) {
+         return normalizeSpace(
+             String(value || "")
+                 .replace(/[\u200B-\u200D\uFEFF]/g, "")
+                 .replace(/\u2026/g, "")
+                 .replace(/\p{Extended_Pictographic}/gu, "")
+                 .replace(/[\uFE0E\uFE0F]/g, "")
+                 .replace(/[↗↘↖↙]/g, "")
+         );
+     }
 
-         const raw = normalizeSpace(scopusName);
+     function formatName(rawName) {
+         const name = cleanName(rawName);
 
-         if (!raw) return "";
+         if (!name) return "";
 
-         // Example:
-         // Kumar, Rakshak -> Rakshak Kumar
+         if (name.includes(",")) {
+             const parts = name.split(",");
+             const last = normalizeSpace(parts.shift());
+             const first = normalizeSpace(parts.join(" "));
 
-         if (raw.includes(",")) {
-
-             const parts = raw.split(",");
-
-             const lastName =
-                 normalizeSpace(parts.shift());
-
-             const firstName =
-                 normalizeSpace(parts.join(" "));
-
-             return normalizeSpace(
-                 firstName + " " + lastName
-             );
+             return cleanName(`${first} ${last}`);
          }
 
-         return raw;
+         return name;
      }
 
      function isVisible(element) {
-
          if (!element || !element.isConnected) {
              return false;
          }
 
-         const style = window.getComputedStyle(element);
+         const style = getComputedStyle(element);
 
          return (
              style.display !== "none" &&
@@ -139,11 +135,9 @@
          callback,
          timeout = 10000
      ) {
-
          const start = Date.now();
 
          const timer = setInterval(() => {
-
              let element = null;
 
              try {
@@ -153,27 +147,17 @@
              }
 
              if (element) {
-
                  clearInterval(timer);
-
                  callback(element);
-
-                 return;
-             }
-
-             if (Date.now() - start > timeout) {
-
+             } else if (Date.now() - start > timeout) {
                  clearInterval(timer);
-
              }
-
          }, 100);
 
          return () => clearInterval(timer);
      }
 
      function fillInput(input, value) {
-
          if (!input) return;
 
          input.focus();
@@ -183,96 +167,65 @@
                  ? HTMLTextAreaElement.prototype
                  : HTMLInputElement.prototype;
 
-         const nativeSetter =
-             Object.getOwnPropertyDescriptor(
-                 prototype,
-                 "value"
-             )?.set;
+         const setter = Object.getOwnPropertyDescriptor(
+             prototype,
+             "value"
+         )?.set;
 
-         if (nativeSetter) {
-
-             nativeSetter.call(input, value);
-
+         if (setter) {
+             setter.call(input, value);
          } else {
-
              input.value = value;
-
          }
 
          input.dispatchEvent(
-             new Event("input", {
-                 bubbles: true
-             })
+             new Event("input", { bubbles: true })
          );
 
          input.dispatchEvent(
-             new Event("change", {
-                 bubbles: true
-             })
-         );
-
-         input.dispatchEvent(
-             new KeyboardEvent("keyup", {
-                 bubbles: true,
-                 key: "Enter"
-             })
+             new Event("change", { bubbles: true })
          );
      }
 
-     function createButton(
-         text,
-         color,
-         onclick
-     ) {
+     function createButton(text, color, handler) {
+         const btn = document.createElement("button");
 
-         const button =
-             document.createElement("button");
+         btn.textContent = text;
 
-         button.textContent = text;
-
-         Object.assign(button.style, {
-
+         Object.assign(btn.style, {
              padding: "8px 12px",
              border: "none",
              borderRadius: "8px",
              background: color,
-             color: "#ffffff",
+             color: "#fff",
              cursor: "pointer",
              fontSize: "13px",
              fontWeight: "600",
              whiteSpace: "nowrap"
-
          });
 
-         button.addEventListener(
-             "click",
-             onclick
-         );
+         btn.addEventListener("click", handler);
 
-         return button;
+         return btn;
      }
 
      // =====================================================
-     // 4. SCOPUS AUTHOR DETECTION
+     // 4. SCOPUS AUTHOR STATE
      // =====================================================
 
-     let currentAuthorId = "";
-
-     let currentAuthorData = {
+     let currentAuthor = {
          id: "",
          name: "",
          email: "",
          institution: ""
      };
 
-     let authorRequestNumber = 0;
+     let requestSerial = 0;
 
-     function getScopusAuthorId() {
-
-         const params =
-             new URLSearchParams(
-                 window.location.search
-             );
+     function getAuthorId() {
+         const params = new URLSearchParams(
+             window.location.search
+         );
 
          return (
              params.get("authorId") ||
@@ -282,54 +235,38 @@
      }
 
      // =====================================================
-     // 5. READ NAME DIRECTLY FROM SCOPUS PAGE
+     // 5. STRICT DOM FALLBACK
+     // Only used when the Scopus API fails.
      // =====================================================
 
-     function getScopusDisplayedName() {
-
+     function readNameFromPage() {
          const selectors = [
-
              '[data-testid="author-name"]',
-
              '[data-testid*="author-name"]',
-
-             'h1',
-
              '[class*="AuthorName"]',
-
-             '[class*="authorName"]'
-
+             '[class*="authorName"]',
+             "h1"
          ];
 
          for (const selector of selectors) {
+             for (const element of document.querySelectorAll(selector)) {
+                 if (!isVisible(element)) continue;
 
-             const elements =
-                 document.querySelectorAll(selector);
+                 const clone = element.cloneNode(true);
 
-             for (const element of elements) {
+                 clone.querySelectorAll(
+                     "svg, img, button, [role='img'], " +
+                     "[aria-hidden='true']"
+                 ).forEach(node => node.remove());
 
-                 if (!isVisible(element)) {
-                     continue;
-                 }
-
-                 const raw =
-                     normalizeSpace(
-                         element.textContent
-                     );
-
-                 if (!raw) continue;
-
-                 // Prefer Scopus name:
-                 // Last name, First name
+                 const text = cleanName(clone.textContent);
 
                  if (
-                     raw.includes(",") &&
-                     raw.length < 150 &&
-                     !raw.includes("@")
+                     text.includes(",") &&
+                     text.length < 120 &&
+                     !text.includes("@")
                  ) {
-
-                     return formatName(raw);
-
+                     return formatName(text);
                  }
              }
          }
@@ -338,220 +275,171 @@
      }
 
      // =====================================================
-     // 6. SCOPUS API
+     // 6. FETCH SCOPUS AUTHOR DATA
      // =====================================================
 
-     async function fetchScopusAuthor(authorId) {
-
+     async function fetchAuthorData(authorId) {
          const apiUrl =
-             "https://www.scopus.com/api/authors/" +
-             encodeURIComponent(authorId);
+             `https://www.scopus.com/api/authors/${encodeURIComponent(authorId)}`;
 
-         const response = await fetch(
-             apiUrl,
-             {
-                 credentials: "include",
-                 cache: "no-store"
-             }
-         );
+         const response = await fetch(apiUrl, {
+             credentials: "include",
+             cache: "no-store"
+         });
 
          if (!response.ok) {
-
              throw new Error(
-                 "Scopus API HTTP " +
-                 response.status
+                 `Scopus API returned ${response.status}`
              );
-
          }
 
          const data = await response.json();
 
          return {
-
              id: authorId,
-
              name: formatName(
                  data.preferredName?.full || ""
              ),
-
-             email:
-                 data.emailAddress || "",
-
+             email: data.emailAddress || "",
              institution:
                  data.latestAffiliatedInstitution?.name || ""
-
          };
      }
 
      // =====================================================
-     // 7. UPDATE AUTHOR DATA
+     // 7. UPDATE CURRENT SCOPUS AUTHOR
      // =====================================================
 
-     async function updateCurrentAuthor(
-         authorId,
-         force = false
-     ) {
+     async function updateAuthor(authorId) {
+         const serial = ++requestSerial;
 
-         if (!authorId) return;
-
-         if (
-             !force &&
-             authorId === currentAuthorId
-         ) {
-
-             return;
-         }
-
-         currentAuthorId = authorId;
-
-         const requestNumber =
-             ++authorRequestNumber;
-
-         // Immediately invalidate old author information
-
-         currentAuthorData = {
-
+         // Immediately clear the previous author.
+         currentAuthor = {
              id: authorId,
-             name: getScopusDisplayedName(),
+             name: "",
              email: "",
              institution: ""
-
          };
 
-         // Remove old button bar
-
-         removeScopusButtonBar();
-
-         // Create a new bar for the current author
-
-         createScopusButtonBar();
+         removeButtonBar();
 
          try {
+             const data = await fetchAuthorData(authorId);
 
-             const result =
-                 await fetchScopusAuthor(authorId);
-
-             // Prevent old asynchronous responses
-             // from overwriting the new author's data
-
+             // Ignore outdated API responses.
              if (
-                 requestNumber !== authorRequestNumber ||
-                 authorId !== getScopusAuthorId()
+                 serial !== requestSerial ||
+                 getAuthorId() !== authorId
              ) {
-
                  return;
-
              }
 
-             currentAuthorData = {
-
-                 ...result,
-
-                 name:
-                     getScopusDisplayedName() ||
-                     result.name
-
+             // API is the primary source.
+             currentAuthor = {
+                 ...data,
+                 name: data.name || readNameFromPage()
              };
 
-             createScopusButtonBar(true);
-
          } catch (error) {
-
              console.warn(
-                 "[Scopus Helper] API error:",
+                 "[Scopus Helper] API unavailable:",
                  error
              );
 
              if (
-                 requestNumber !== authorRequestNumber
+                 serial !== requestSerial ||
+                 getAuthorId() !== authorId
              ) {
-
                  return;
-
              }
 
-             currentAuthorData.name =
-                 getScopusDisplayedName() ||
-                 currentAuthorData.name;
-
-             createScopusButtonBar(true);
-
+             // Strict DOM fallback only.
+             currentAuthor.name = readNameFromPage();
          }
+
+         createButtonBar();
      }
 
      // =====================================================
-     // 8. LIVE AUTHOR NAME
+     // 8. CURRENT AUTHOR ACCESS
      // =====================================================
 
-     function getCurrentAuthorName() {
-
-         const actualAuthorId =
-             getScopusAuthorId();
-
+     function getCurrentName() {
+         // Never use data belonging to another Author ID.
          if (
-             !actualAuthorId ||
-             actualAuthorId !== currentAuthorData.id
+             !getAuthorId() ||
+             getAuthorId() !== currentAuthor.id
          ) {
-
              return "";
-
          }
 
-         const displayedName =
-             getScopusDisplayedName();
+         return cleanName(currentAuthor.name);
+     }
 
-         if (displayedName) {
-
-             currentAuthorData.name =
-                 displayedName;
-
-             return displayedName;
-
+     function getCurrentInstitution() {
+         if (getAuthorId() !== currentAuthor.id) {
+             return "";
          }
 
-         return currentAuthorData.name || "";
+         return currentAuthor.institution || "";
+     }
+
+     function getCurrentEmail() {
+         if (getAuthorId() !== currentAuthor.id) {
+             return "";
+         }
+
+         return currentAuthor.email || "";
      }
 
      // =====================================================
-     // 9. SCOPUS BUTTON BAR
+     // 9. RETRACTION LINK
      // =====================================================
 
-     function removeScopusButtonBar() {
+     function buildRetractionSearchUrl(name) {
+         const clean = cleanName(name);
 
-         document.getElementById(
-             SCOPUS_BAR_ID
-         )?.remove();
+         const target = new URL(RETRACTION_URL);
+
+         // Dedicated userscript parameter.
+         target.searchParams.set(
+             "scopusAuthor",
+             clean
+         );
+
+         // Retraction author search fragment.
+         // Use only the current clean name.
+         const encoded = encodeURIComponent(clean)
+             .replace(/%20/g, "+");
+
+         target.hash = "?auth%3d" + encoded;
+
+         return target.toString();
      }
 
-     function createScopusButtonBar(
-         replace = false
-     ) {
+     // =====================================================
+     // 10. SCOPUS BUTTON BAR
+     // =====================================================
 
-         if (replace) {
+     function removeButtonBar() {
+         document.getElementById(BAR_ID)?.remove();
+     }
 
-             removeScopusButtonBar();
-
-         }
-
-         if (
-             document.getElementById(
-                 SCOPUS_BAR_ID
-             )
-         ) {
-
-             return;
-
-         }
+     function createButtonBar() {
+         removeButtonBar();
 
          if (!document.body) return;
 
-         const bar =
-             document.createElement("div");
+         // Do not display previous-author data.
+         if (getAuthorId() !== currentAuthor.id) {
+             return;
+         }
 
-         bar.id = SCOPUS_BAR_ID;
+         const bar = document.createElement("div");
+
+         bar.id = BAR_ID;
 
          Object.assign(bar.style, {
-
              position: "fixed",
              top: "30px",
              left: "50%",
@@ -562,7 +450,7 @@
              flexWrap: "wrap",
              justifyContent: "center",
              gap: "8px",
-             background: "#ffffff",
+             background: "#fff",
              border: "1px solid #ccc",
              borderRadius: "10px",
              boxShadow:
@@ -570,207 +458,122 @@
              padding: "10px",
              maxWidth: "95vw",
              fontFamily: "Arial, sans-serif"
-
          });
 
-         // Current author email
+         // Email label
+         const emailText = document.createElement("span");
+         const email = getCurrentEmail();
 
-         const emailText =
-             document.createElement("span");
+         emailText.textContent = email || "No email";
 
-         const email =
-             currentAuthorData.email;
-
-         emailText.textContent =
-             email || "No email";
-
-         emailText.title =
-             email
-                 ? "Click to copy email"
-                 : "No email found";
+         emailText.title = email
+             ? "Click to copy email"
+             : "No email found";
 
          Object.assign(emailText.style, {
-
              padding: "8px 12px",
              borderRadius: "8px",
-             background:
-                 email ? "#f6ffed" : "#fff1f0",
-             color:
-                 email ? "#237804" : "#a8071a",
-             fontSize: "13px",
-             fontWeight: "600",
-             cursor:
-                 email ? "pointer" : "default",
+             background: email ? "#f6ffed" : "#fff1f0",
+             color: email ? "#237804" : "#a8071a",
              border:
                  "1px solid " +
-                 (email ? "#b7eb8f" : "#ffa39e")
-
+                 (email ? "#b7eb8f" : "#ffa39e"),
+             fontSize: "13px",
+             fontWeight: "600",
+             cursor: email ? "pointer" : "default"
          });
 
          emailText.onclick = () => {
+             const current = getCurrentEmail();
 
-             const currentEmail =
-                 currentAuthorData.email;
-
-             if (currentEmail) {
-
-                 GM_setClipboard(currentEmail);
-
+             if (current) {
+                 GM_setClipboard(current);
              }
          };
 
          bar.appendChild(emailText);
 
-         // MDPI button
-
+         // MDPI
          bar.appendChild(
-             createButton(
-                 "MDPI",
-                 "#1677ff",
-                 () => {
+             createButton("MDPI", "#1677ff", () => {
+                 const email = getCurrentEmail();
 
-                     const email =
-                         currentAuthorData.email;
+                 if (!email) return;
 
-                     if (!email) {
-
-                         alert(
-                             "No email found for this author."
-                         );
-
-                         return;
-                     }
-
-                     GM_setClipboard(email);
-
-                     openMdpiForEmail(email);
-                 }
-             )
+                 GM_setClipboard(email);
+                 openMdpiForEmail(email);
+             })
          );
 
-         // PubPeer button
-
+         // PubPeer
          bar.appendChild(
-             createButton(
-                 "PubPeer",
-                 "#722ed1",
-                 () => {
+             createButton("PubPeer", "#722ed1", () => {
+                 const name = getCurrentName();
 
-                     const name =
-                         getCurrentAuthorName();
+                 if (!name) return;
 
-                     if (!name) {
-
-                         alert(
-                             "Current author name not found."
-                         );
-
-                         return;
-                     }
-
-                     window.open(
-                         PUBPEER_SEARCH_URL +
-                         encodeURIComponent(name),
-                         "_blank"
-                     );
-                 }
-             )
+                 window.open(
+                     PUBPEER_URL + encodeURIComponent(name),
+                     "_blank"
+                 );
+             })
          );
 
-         // Retraction button
-
+         // Retraction
+         // Uses exactly the same current name as Google.
          bar.appendChild(
-             createButton(
-                 "Retraction",
-                 "#fa541c",
-                 () => {
+             createButton("Retraction", "#fa541c", () => {
+                 const name = getCurrentName();
 
-                     const name =
-                         getCurrentAuthorName();
-
-                     if (!name) {
-
-                         alert(
-                             "Current author name not found."
-                         );
-
-                         return;
-                     }
-
-                     const targetUrl =
-                         buildRetractionSearchUrl(name);
-
-                     console.log(
-                         "[Scopus Helper] Retraction author:",
-                         name
-                     );
-
-                     window.open(
-                         targetUrl,
-                         "_blank"
-                     );
+                 if (!name) {
+                     alert("Current author name not found.");
+                     return;
                  }
-             )
+
+                 window.open(
+                     buildRetractionSearchUrl(name),
+                     "_blank"
+                 );
+             })
          );
 
-         // Google button
-
+         // Google
          bar.appendChild(
-             createButton(
-                 "Google",
-                 "#595959",
-                 () => {
+             createButton("Google", "#595959", () => {
+                 const name = getCurrentName();
 
-                     const name =
-                         getCurrentAuthorName();
+                 if (!name) return;
 
-                     const institution =
-                         currentAuthorData.institution;
+                 const query =
+                     `${name} ${getCurrentInstitution()}`;
 
-                     if (!name) return;
-
-                     const query =
-                         name + " " + institution;
-
-                     window.open(
-                         "https://www.google.com/search?q=" +
-                         encodeURIComponent(query),
-                         "_blank"
-                     );
-                 }
-             )
+                 window.open(
+                     "https://www.google.com/search?q=" +
+                     encodeURIComponent(query),
+                     "_blank"
+                 );
+             })
          );
 
-         // Scholar button
-
+         // Google Scholar
          bar.appendChild(
-             createButton(
-                 "Scholar",
-                 "#13c2c2",
-                 () => {
+             createButton("Scholar", "#13c2c2", () => {
+                 const name = getCurrentName();
 
-                     const name =
-                         getCurrentAuthorName();
+                 if (!name) return;
 
-                     const institution =
-                         currentAuthorData.institution;
+                 const query =
+                     `${name} ${getCurrentInstitution()}`;
 
-                     if (!name) return;
-
-                     const query =
-                         name + " " + institution;
-
-                     window.open(
-                         "https://scholar.google.com/scholar?q=" +
-                         encodeURIComponent(query),
-                         "_blank"
-                     );
-                 }
-             )
+                 window.open(
+                     "https://scholar.google.com/scholar?q=" +
+                     encodeURIComponent(query),
+                     "_blank"
+                 );
+             })
          );
 
-         // MDPI settings button
-
+         // MDPI settings
          bar.appendChild(
              createButton(
                  "⚙ MDPI网页",
@@ -783,373 +586,202 @@
      }
 
      // =====================================================
-     // 10. SCOPUS AUTHOR CHANGE MONITOR
+     // 11. SCOPUS NAVIGATION MONITOR
      // =====================================================
 
-     function startScopusMonitor() {
-
-         if (
-             hostname === "www2.scopus.com"
-         ) {
-
-             const newUrl =
+     function runScopusPage() {
+         if (hostname === "www2.scopus.com") {
+             window.location.replace(
                  window.location.href.replace(
                      "www2.scopus.com",
                      "www.scopus.com"
-                 );
-
-             window.location.replace(newUrl);
-
+                 )
+             );
              return;
          }
 
+         let observedAuthorId = "";
+
          function checkAuthor() {
+             const authorId = getAuthorId();
 
-             const authorId =
-                 getScopusAuthorId();
-
-             if (!authorId) return;
-
-             if (
-                 authorId !== currentAuthorId
-             ) {
-
-                 updateCurrentAuthor(authorId);
-
+             if (authorId === observedAuthorId) {
                  return;
              }
 
-             const displayedName =
-                 getScopusDisplayedName();
+             observedAuthorId = authorId;
 
-             if (
-                 displayedName &&
-                 displayedName !== currentAuthorData.name
-             ) {
-
-                 currentAuthorData.name =
-                     displayedName;
-
+             if (!authorId) {
+                 ++requestSerial;
+                 currentAuthor = {
+                     id: "",
+                     name: "",
+                     email: "",
+                     institution: ""
+                 };
+                 removeButtonBar();
+                 return;
              }
-         }
 
-         // Initial detection
+             updateAuthor(authorId);
+         }
 
          checkAuthor();
 
-         // Scopus sometimes changes its content
-         // without a complete page reload.
+         // Scopus may navigate without a full reload.
+         setInterval(checkAuthor, 500);
 
-         setInterval(
-             checkAuthor,
-             700
-         );
-
-         window.addEventListener(
-             "popstate",
-             checkAuthor
-         );
-
-         window.addEventListener(
-             "pageshow",
-             checkAuthor
-         );
-
-         // Also check after tab becomes active
+         window.addEventListener("popstate", checkAuthor);
+         window.addEventListener("pageshow", checkAuthor);
 
          document.addEventListener(
              "visibilitychange",
              () => {
-
-                 if (!document.hidden) {
-
-                     checkAuthor();
-
-                 }
+                 if (!document.hidden) checkAuthor();
              }
          );
      }
 
      // =====================================================
-     // 11. RETRACTION URL
-     // =====================================================
-
-     function buildRetractionSearchUrl(name) {
-
-         const authorName =
-             normalizeSpace(name);
-
-         const encodedName =
-             encodeURIComponent(authorName)
-                 .replace(/%20/g, "+");
-
-         // Use an explicit parameter so the
-         // destination userscript always knows
-         // which Scopus author was requested.
-
-         const url = new URL(
-             RETRACTION_BASE_URL
-         );
-
-         url.searchParams.set(
-             "scopusAuthor",
-             authorName
-         );
-
-         // Retraction author search fragment.
-         // This is also passed to the website.
-
-         url.hash =
-             "?auth%3d" + encodedName;
-
-         return url.toString();
-     }
-
-     // =====================================================
-     // 12. RETRACTION CURRENT AUTHOR
+     // 12. RETRACTION SEARCH PAGE
      // =====================================================
 
      function getRequestedRetractionName() {
+         const params = new URLSearchParams(
+             window.location.search
+         );
 
-         const params =
-             new URLSearchParams(
-                 window.location.search
-             );
-
-         const name =
-             params.get("scopusAuthor");
-
-         if (name) {
-
-             return normalizeSpace(name);
-
-         }
-
-         // Backward compatibility with v5.9
-
-         const oldName =
-             params.get("geName");
-
-         if (oldName) {
-
-             return normalizeSpace(oldName);
-
-         }
-
-         return "";
+         return cleanName(
+             params.get("scopusAuthor") ||
+             params.get("geName") ||
+             ""
+         );
      }
 
-     // =====================================================
-     // 13. FIND RETRACTION AUTHOR INPUT
-     // =====================================================
-
      function findRetractionAuthorInput() {
-
          const selectors = [
-
              'input[name="author"]',
-
              'input[name="Author"]',
-
              'input[name="auth"]',
-
              'input[id*="author" i]',
-
              'input[name*="author" i]',
-
              'input[placeholder*="author" i]',
-
              'input[aria-label*="author" i]',
-
              'input[id*="auth" i]',
-
              'input[name*="auth" i]'
-
          ];
 
          for (const selector of selectors) {
-
-             const elements =
-                 document.querySelectorAll(selector);
-
-             for (const element of elements) {
-
+             for (const element of document.querySelectorAll(selector)) {
                  if (
                      isVisible(element) &&
                      !element.disabled &&
                      !element.readOnly
                  ) {
-
                      return element;
-
                  }
              }
          }
 
-         // Fallback: look for a field near an
-         // "Author" label.
-
-         const labels =
-             document.querySelectorAll(
-                 "label, th, td, span"
-             );
+         // Fallback: find an input beside Author(s).
+         const labels = document.querySelectorAll(
+             "label, td, th, span"
+         );
 
          for (const label of labels) {
-
-             const text =
-                 normalizeSpace(
-                     label.textContent
-                 );
+             const text = normalizeSpace(label.textContent);
 
              if (
-                 !/^author(?:\s+name)?\s*:?\s*$/i.test(text)
+                 !/^author(?:\(s\))?(?:\s+name)?\s*:?\s*$/i.test(text)
              ) {
-
                  continue;
              }
 
-             if (
-                 label.htmlFor
-             ) {
-
-                 const linkedInput =
-                     document.getElementById(
-                         label.htmlFor
-                     );
+             if (label.htmlFor) {
+                 const linked = document.getElementById(
+                     label.htmlFor
+                 );
 
                  if (
-                     linkedInput &&
-                     isVisible(linkedInput)
+                     linked &&
+                     isVisible(linked) &&
+                     !linked.disabled &&
+                     !linked.readOnly
                  ) {
-
-                     return linkedInput;
-
+                     return linked;
                  }
              }
 
-             const parent =
-                 label.closest(
-                     "tr, div, form"
-                 );
-
+             const parent = label.closest("tr, div, form");
              if (!parent) continue;
 
-             const input =
-                 parent.querySelector(
-                     'input[type="text"], input:not([type])'
-                 );
+             const input = parent.querySelector(
+                 'input[type="text"], input:not([type])'
+             );
 
              if (
                  input &&
                  isVisible(input) &&
-                 !input.disabled
+                 !input.disabled &&
+                 !input.readOnly
              ) {
-
                  return input;
-
              }
          }
 
          return null;
      }
 
-     // =====================================================
-     // 14. RETRACTION SEARCH PAGE
-     // =====================================================
-
      function runRetractionPage() {
-
-         const requestedName =
-             getRequestedRetractionName();
+         const requestedName = getRequestedRetractionName();
 
          if (!requestedName) return;
 
-         console.log(
-             "[Scopus Helper] Requested Retraction author:",
-             requestedName
-         );
-
          let lastInput = null;
-
-         let lastAppliedValue = "";
-
-         function applyAuthorName() {
-
-             const input =
-                 findRetractionAuthorInput();
-
-             if (!input) {
-
-                 return;
-             }
-
-             const currentValue =
-                 normalizeSpace(
-                     input.value
-                 );
-
-             // Avoid repeatedly dispatching events
-             // when the value is already correct.
-
-             if (
-                 input === lastInput &&
-                 currentValue === requestedName &&
-                 lastAppliedValue === requestedName
-             ) {
-
-                 return;
-             }
-
-             if (
-                 currentValue !== requestedName
-             ) {
-
-                 fillInput(
-                     input,
-                     requestedName
-                 );
-
-             }
-
-             lastInput = input;
-
-             lastAppliedValue =
-                 requestedName;
-         }
-
-         // The website may render search inputs
-         // asynchronously, so retry briefly.
+         let lastValue = "";
 
          const start = Date.now();
 
-         const timer =
-             setInterval(() => {
+         function applyName() {
+             const input = findRetractionAuthorInput();
 
-                 applyAuthorName();
+             if (!input) return;
 
-                 if (
-                     Date.now() - start > 12000
-                 ) {
+             if (
+                 input === lastInput &&
+                 input.value === requestedName &&
+                 lastValue === requestedName
+             ) {
+                 return;
+             }
 
-                     clearInterval(timer);
+             if (input.value !== requestedName) {
+                 fillInput(input, requestedName);
+             }
 
-                 }
+             lastInput = input;
+             lastValue = requestedName;
+         }
 
-             }, 300);
+         applyName();
 
-         applyAuthorName();
+         const timer = setInterval(() => {
+             applyName();
 
-         // Deliberately do not click an unknown
-         // search button. The URL already carries
-         // the author search fragment.
+             if (Date.now() - start > 12000) {
+                 clearInterval(timer);
+             }
+         }, 300);
+
+         // The Retraction URL also carries the author.
+         // Do not blindly click an unknown search button.
      }
 
      // =====================================================
-     // 15. MDPI URL SETTINGS
+     // 13. MDPI URL SETTINGS
      // =====================================================
 
      function getMdpiInternalUrl() {
-
          return GM_getValue(
              MDPI_URL_STORAGE_KEY,
              DEFAULT_MDPI_INTERNAL_URL
@@ -1157,30 +789,22 @@
      }
 
      function normalizeMdpiUrl(rawUrl) {
-
-         const value =
-             normalizeSpace(rawUrl);
+         const value = normalizeSpace(rawUrl);
 
          if (!value) {
-
              throw new Error(
                  "请输入 MDPI 内部网页地址。"
              );
-
          }
 
          let parsed;
 
          try {
-
              parsed = new URL(value);
-
          } catch (error) {
-
              throw new Error(
-                 "网页地址格式不正确。"
+                 "请输入完整的 https:// 网页地址。"
              );
-
          }
 
          if (
@@ -1190,206 +814,134 @@
                  "/special_issue/process/"
              )
          ) {
-
              throw new Error(
-                 "请输入有效的 MDPI Special Issue Process 网页地址。"
+                 "请输入 https://susy.mdpi.com/special_issue/process/... 格式的网页。"
              );
-
          }
 
          parsed.search = "";
          parsed.hash = "";
 
-         return parsed.toString()
-             .replace(/\/$/, "");
+         return parsed.toString().replace(/\/$/, "");
      }
 
      function buildMdpiUrl(email) {
+         const target = new URL(getMdpiInternalUrl());
 
-         const target = new URL(
-             getMdpiInternalUrl()
-         );
-
-         target.searchParams.set(
-             "geEmail",
-             email
-         );
+         target.searchParams.set("geEmail", email);
 
          return target.toString();
      }
 
      function openMdpiForEmail(email) {
-
-         window.open(
-             buildMdpiUrl(email),
-             "_blank"
-         );
+         window.open(buildMdpiUrl(email), "_blank");
      }
 
      // =====================================================
-     // 16. MDPI SETTINGS DIALOG
+     // 14. MDPI SETTINGS DIALOG
      // =====================================================
 
      function showMdpiSettingsDialog() {
-
          document.getElementById(
-             MDPI_SETTINGS_ID
+             "mdpi-url-settings-overlay"
          )?.remove();
 
-         const overlay =
-             document.createElement("div");
+         const overlay = document.createElement("div");
+         overlay.id = "mdpi-url-settings-overlay";
 
-         overlay.id =
-             MDPI_SETTINGS_ID;
+         Object.assign(overlay.style, {
+             position: "fixed",
+             inset: "0",
+             zIndex: "1000000",
+             display: "flex",
+             alignItems: "center",
+             justifyContent: "center",
+             background: "rgba(0,0,0,0.38)"
+         });
 
-         Object.assign(
-             overlay.style,
-             {
-                 position: "fixed",
-                 inset: "0",
-                 zIndex: "1000000",
-                 display: "flex",
-                 alignItems: "center",
-                 justifyContent: "center",
-                 background:
-                     "rgba(0,0,0,0.38)"
-             }
-         );
+         const panel = document.createElement("div");
 
-         const panel =
-             document.createElement("div");
+         Object.assign(panel.style, {
+             width: "min(620px, calc(100vw - 40px))",
+             boxSizing: "border-box",
+             padding: "22px",
+             borderRadius: "12px",
+             background: "#fff",
+             boxShadow: "0 8px 30px rgba(0,0,0,0.28)",
+             fontFamily: "Arial, sans-serif"
+         });
 
-         Object.assign(
-             panel.style,
-             {
-                 width:
-                     "min(620px, calc(100vw - 40px))",
-                 padding: "22px",
-                 boxSizing: "border-box",
-                 borderRadius: "12px",
-                 background: "#ffffff",
-                 boxShadow:
-                     "0 8px 30px rgba(0,0,0,0.28)",
-                 fontFamily:
-                     "Arial, sans-serif"
-             }
-         );
-
-         const title =
-             document.createElement("h3");
-
-         title.textContent =
-             "MDPI 邮箱验证网页设置";
-
-         title.style.color = "#222";
-
+         const title = document.createElement("h3");
+         title.textContent = "MDPI 邮箱验证网页";
          title.style.marginTop = "0";
 
-         const description =
-             document.createElement("p");
-
+         const description = document.createElement("p");
          description.textContent =
-             "保存后将持续使用该地址，除非再次修改或恢复默认。";
+             "保存后会持续使用该网页，除非再次修改或恢复默认。";
 
-         description.style.color =
-             "#595959";
+         description.style.fontSize = "13px";
+         description.style.color = "#595959";
 
-         description.style.fontSize =
-             "13px";
-
-         const input =
-             document.createElement("input");
-
+         const input = document.createElement("input");
          input.type = "url";
-
-         input.value =
-             getMdpiInternalUrl();
-
+         input.value = getMdpiInternalUrl();
          input.placeholder =
              "https://susy.mdpi.com/special_issue/process/...";
 
-         Object.assign(
-             input.style,
-             {
-                 width: "100%",
-                 padding: "10px",
-                 boxSizing: "border-box",
-                 border: "1px solid #ccc",
-                 borderRadius: "6px",
-                 fontSize: "14px"
-             }
-         );
+         Object.assign(input.style, {
+             width: "100%",
+             boxSizing: "border-box",
+             padding: "10px 12px",
+             border: "1px solid #d9d9d9",
+             borderRadius: "7px",
+             fontSize: "14px"
+         });
 
-         const status =
-             document.createElement("div");
+         const status = document.createElement("div");
 
-         status.style.minHeight = "20px";
+         Object.assign(status.style, {
+             minHeight: "20px",
+             marginTop: "8px",
+             fontSize: "12px",
+             color: "#cf1322"
+         });
 
-         status.style.marginTop = "10px";
+         const actions = document.createElement("div");
 
-         status.style.fontSize = "12px";
+         Object.assign(actions.style, {
+             display: "flex",
+             justifyContent: "flex-end",
+             flexWrap: "wrap",
+             gap: "8px",
+             marginTop: "12px"
+         });
 
-         const actions =
-             document.createElement("div");
-
-         Object.assign(
-             actions.style,
-             {
-                 display: "flex",
-                 justifyContent: "flex-end",
-                 flexWrap: "wrap",
-                 gap: "8px",
-                 marginTop: "12px"
-             }
-         );
-
-         function addAction(
-             text,
-             color,
-             handler
-         ) {
-
-             const button =
-                 createButton(
-                     text,
-                     color,
-                     handler
-                 );
-
-             actions.appendChild(button);
+         function addAction(text, color, handler) {
+             actions.appendChild(
+                 createButton(text, color, handler)
+             );
          }
 
          if (isMdpiPage()) {
-
              addAction(
                  "使用当前页面",
                  "#722ed1",
                  () => {
-
                      input.value =
                          window.location.origin +
                          window.location.pathname;
 
                      status.textContent =
-                         "已填入当前网页地址。";
-
+                         "已填入当前页面，请点击保存。";
                  }
              );
          }
 
-         addAction(
-             "恢复默认",
-             "#8c8c8c",
-             () => {
-
-                 input.value =
-                     DEFAULT_MDPI_INTERNAL_URL;
-
-                 status.textContent =
-                     "已恢复默认地址，点击保存生效。";
-
-             }
-         );
+         addAction("恢复默认", "#8c8c8c", () => {
+             input.value = DEFAULT_MDPI_INTERNAL_URL;
+             status.textContent =
+                 "已恢复默认地址，请点击保存。";
+         });
 
          addAction(
              "取消",
@@ -1397,155 +949,98 @@
              () => overlay.remove()
          );
 
-         addAction(
-             "保存",
-             "#1677ff",
-             () => {
+         addAction("保存", "#1677ff", () => {
+             try {
+                 const normalized = normalizeMdpiUrl(
+                     input.value
+                 );
 
-                 try {
+                 GM_setValue(
+                     MDPI_URL_STORAGE_KEY,
+                     normalized
+                 );
 
-                     const normalized =
-                         normalizeMdpiUrl(
-                             input.value
-                         );
+                 status.textContent = "保存成功。";
+                 status.style.color = "#389e0d";
 
-                     GM_setValue(
-                         MDPI_URL_STORAGE_KEY,
-                         normalized
-                     );
+                 setTimeout(() => overlay.remove(), 700);
 
-                     status.textContent =
-                         "保存成功。";
-
-                     status.style.color =
-                         "#389e0d";
-
-                     setTimeout(
-                         () => overlay.remove(),
-                         700
-                     );
-
-                 } catch (error) {
-
-                     status.textContent =
-                         error.message;
-
-                     status.style.color =
-                         "#cf1322";
-
-                 }
+             } catch (error) {
+                 status.textContent = error.message;
+                 status.style.color = "#cf1322";
              }
-         );
+         });
 
          panel.appendChild(title);
-
-         panel.appendChild(
-             description
-         );
-
+         panel.appendChild(description);
          panel.appendChild(input);
-
          panel.appendChild(status);
-
          panel.appendChild(actions);
 
          overlay.appendChild(panel);
+         document.body.appendChild(overlay);
 
-         document.body.appendChild(
-             overlay
-         );
-
-         overlay.addEventListener(
-             "mousedown",
-             event => {
-
-                 if (
-                     event.target === overlay
-                 ) {
-
-                     overlay.remove();
-
-                 }
+         overlay.addEventListener("mousedown", event => {
+             if (event.target === overlay) {
+                 overlay.remove();
              }
-         );
+         });
      }
 
      // =====================================================
-     // 17. MDPI EMAIL INPUT
+     // 15. FIND MDPI EMAIL INPUT
      // =====================================================
 
      function findEmailInput() {
-
          const selectors = [
-
              'input[type="email"]',
-
              'input[name*="email" i]',
-
              'input[id*="email" i]',
-
              'input[placeholder*="email" i]'
-
          ];
 
          for (const selector of selectors) {
-
              const elements =
                  document.querySelectorAll(selector);
 
              for (const element of elements) {
-
                  if (
                      isVisible(element) &&
                      !element.disabled
                  ) {
-
                      return element;
-
                  }
              }
          }
 
-         const labels =
-             document.querySelectorAll(
-                 "label, td, th, span"
+         const labels = document.querySelectorAll(
+             "label, td, th, div, span"
+         );
+
+         const emailLabel = Array.from(labels).find(el => {
+             const text = el.textContent || "";
+
+             return (
+                 /email/i.test(text) &&
+                 text.length < 80
              );
+         });
 
-         for (const label of labels) {
-
-             const text =
-                 normalizeSpace(
-                     label.textContent
-                 );
-
-             if (
-                 !/email/i.test(text) ||
-                 text.length > 80
-             ) {
-
-                 continue;
-             }
-
+         if (emailLabel) {
              const parent =
-                 label.closest(
-                     "tr, div, form"
-                 );
+                 emailLabel.closest("tr, div, form") ||
+                 document.body;
 
-             if (!parent) continue;
-
-             const input =
-                 parent.querySelector(
-                     'input[type="text"], input:not([type])'
-                 );
+             const input = parent.querySelector(
+                 'input[type="text"], input:not([type])'
+             );
 
              if (
                  input &&
                  isVisible(input) &&
                  !input.disabled
              ) {
-
                  return input;
-
              }
          }
 
@@ -1553,139 +1048,99 @@
      }
 
      // =====================================================
-     // 18. MDPI NEXT BUTTON
+     // 16. FIND MDPI NEXT BUTTON
      // =====================================================
 
      function findCorrectNextButton(input) {
-
          const buttons = Array.from(
              document.querySelectorAll(
-                 "button, input[type='button'], input[type='submit'], a"
+                 "button, input[type='button'], " +
+                 "input[type='submit'], a"
              )
          );
 
-         const nextButtons =
-             buttons.filter(element => {
+         const nextButtons = buttons.filter(element => {
+             const text = normalizeSpace(
+                 element.innerText ||
+                 element.value ||
+                 ""
+             ).toLowerCase();
 
-                 const text =
-                     normalizeSpace(
-                         element.innerText ||
-                         element.value
-                     ).toLowerCase();
+             return text === "next" && isVisible(element);
+         });
 
-                 return (
-                     text === "next" &&
-                     isVisible(element)
-                 );
-             });
+         if (!nextButtons.length) return null;
 
-         if (!nextButtons.length) {
-             return null;
-         }
+         const inputRect = input.getBoundingClientRect();
 
-         const inputRect =
-             input.getBoundingClientRect();
+         nextButtons.sort((a, b) => {
+             const ra = a.getBoundingClientRect();
+             const rb = b.getBoundingClientRect();
 
-         nextButtons.sort(
-             (a, b) => {
+             const da =
+                 Math.abs(ra.top - inputRect.bottom) +
+                 Math.abs(ra.left - inputRect.left);
 
-                 const rectA =
-                     a.getBoundingClientRect();
+             const db =
+                 Math.abs(rb.top - inputRect.bottom) +
+                 Math.abs(rb.left - inputRect.left);
 
-                 const rectB =
-                     b.getBoundingClientRect();
-
-                 const distanceA =
-                     Math.abs(
-                         rectA.top -
-                         inputRect.bottom
-                     ) +
-                     Math.abs(
-                         rectA.left -
-                         inputRect.left
-                     );
-
-                 const distanceB =
-                     Math.abs(
-                         rectB.top -
-                         inputRect.bottom
-                     ) +
-                     Math.abs(
-                         rectB.left -
-                         inputRect.left
-                     );
-
-                 return (
-                     distanceA - distanceB
-                 );
-             }
-         );
+             return da - db;
+         });
 
          return nextButtons[0];
      }
 
      // =====================================================
-     // 19. CLOSE MDPI POPUP
+     // 17. CLOSE MDPI POPUP
      // =====================================================
 
      function closeMdpiPopup() {
-
          const candidates = Array.from(
              document.querySelectorAll(
                  "button, a, span, div"
              )
          );
 
-         const closeButton =
-             candidates.find(element => {
+         const closeBtn = candidates.find(el => {
+             const text = normalizeSpace(
+                 el.innerText ||
+                 el.textContent ||
+                 ""
+             );
 
-                 const text =
-                     normalizeSpace(
-                         element.innerText ||
-                         element.textContent
-                     );
+             const aria = (
+                 el.getAttribute("aria-label") || ""
+             ).toLowerCase();
 
-                 const aria =
-                     (
-                         element.getAttribute(
-                             "aria-label"
-                         ) || ""
-                     ).toLowerCase();
+             const cls = String(
+                 el.className || ""
+             ).toLowerCase();
 
-                 const className =
-                     String(
-                         element.className || ""
-                     ).toLowerCase();
+             return (
+                 isVisible(el) &&
+                 (
+                     text === "×" ||
+                     text === "x" ||
+                     aria.includes("close") ||
+                     cls.includes("close")
+                 )
+             );
+         });
 
-                 return (
-                     (text === "×" ||
-                      text === "x" ||
-                      aria.includes("close") ||
-                      className.includes("close")) &&
-                     isVisible(element)
-                 );
-             });
-
-         if (closeButton) {
-
-             closeButton.click();
-
-         }
+         if (closeBtn) closeBtn.click();
      }
 
      // =====================================================
-     // 20. MDPI AUTO VERIFICATION
+     // 18. MDPI AUTO VERIFICATION
      // =====================================================
 
      function runMdpiPage() {
+         const params = new URLSearchParams(
+             window.location.search
+         );
 
-         const params =
-             new URLSearchParams(
-                 window.location.search
-             );
-
-         const email =
-             params.get("geEmail");
+         const email = params.get("geEmail");
 
          createMdpiSettingsLauncher();
 
@@ -1696,36 +1151,16 @@
          waitForElement(
              findEmailInput,
              input => {
-
-                 fillInput(
-                     input,
-                     email
-                 );
+                 fillInput(input, email);
 
                  waitForElement(
-                     () =>
-                         findCorrectNextButton(
-                             input
-                         ),
-                     nextButton => {
+                     () => findCorrectNextButton(input),
+                     nextBtn => {
+                         nextBtn.click();
 
-                         nextButton.click();
-
-                         setTimeout(
-                             closeMdpiPopup,
-                             300
-                         );
-
-                         setTimeout(
-                             closeMdpiPopup,
-                             800
-                         );
-
-                         setTimeout(
-                             closeMdpiPopup,
-                             1500
-                         );
-
+                         setTimeout(closeMdpiPopup, 300);
+                         setTimeout(closeMdpiPopup, 800);
+                         setTimeout(closeMdpiPopup, 1500);
                      },
                      5000
                  );
@@ -1735,262 +1170,154 @@
      }
 
      // =====================================================
-     // 21. MDPI SETTINGS LAUNCHER
+     // 19. MDPI SETTINGS LAUNCHER
      // =====================================================
 
      function createMdpiSettingsLauncher() {
+         if (!isMdpiPage()) return;
 
-         const buttonId =
-             "mdpi-url-settings-launcher";
+         const id = "mdpi-url-settings-launcher";
 
-         if (
-             document.getElementById(
-                 buttonId
-             )
-         ) {
+         if (document.getElementById(id)) return;
 
-             return;
-
-         }
-
-         const button =
-             createButton(
-                 "⚙ 设置为邮箱验证页",
-                 "#1677ff",
-                 showMdpiSettingsDialog
-             );
-
-         button.id = buttonId;
-
-         Object.assign(
-             button.style,
-             {
-                 position: "fixed",
-                 right: "20px",
-                 bottom: "20px",
-                 zIndex: "999999",
-                 boxShadow:
-                     "0 3px 12px rgba(0,0,0,0.25)"
-             }
+         const btn = createButton(
+             "⚙ 设置为邮箱验证页",
+             "#1677ff",
+             showMdpiSettingsDialog
          );
 
-         document.body.appendChild(
-             button
-         );
+         btn.id = id;
+
+         Object.assign(btn.style, {
+             position: "fixed",
+             right: "20px",
+             bottom: "20px",
+             zIndex: "999999",
+             boxShadow:
+                 "0 3px 12px rgba(0,0,0,0.25)"
+         });
+
+         document.body.appendChild(btn);
      }
 
      // =====================================================
-     // 22. SELECTED EMAIL FLOATING BUTTON
+     // 20. SELECTED EMAIL FLOATING BUTTON
      // =====================================================
 
      function createSelectedEmailMdpiButton() {
-
          if (isMdpiPage()) return;
 
          if (
-             document.getElementById(
-                 SELECTED_EMAIL_BUTTON_ID
-             )
+             document.getElementById(EMAIL_BUTTON_ID)
          ) {
-
              return;
-
          }
 
-         const button =
-             createButton(
-                 "MDPI",
-                 "#1677ff",
-                 () => {
+         let currentEmail = "";
 
-                     if (!currentSelectedEmail) {
-                         return;
-                     }
-
-                     GM_setClipboard(
-                         currentSelectedEmail
-                     );
-
-                     openMdpiForEmail(
-                         currentSelectedEmail
-                     );
-                 }
-             );
-
-         button.id =
-             SELECTED_EMAIL_BUTTON_ID;
-
-         Object.assign(
-             button.style,
-             {
-                 position: "absolute",
-                 zIndex: "999999",
-                 padding: "6px 12px",
-                 fontSize: "12px",
-                 display: "none",
-                 boxShadow:
-                     "0 3px 10px rgba(0,0,0,0.25)"
-             }
-         );
-
-         document.body.appendChild(
-             button
-         );
-
-         let currentSelectedEmail = "";
-
-         document.addEventListener(
-             "mouseup",
+         const btn = createButton(
+             "MDPI",
+             "#1677ff",
              () => {
+                 if (!currentEmail) return;
 
-                 setTimeout(
-                     () => {
-
-                         const selection =
-                             window.getSelection();
-
-                         if (
-                             !selection ||
-                             selection.rangeCount === 0
-                         ) {
-
-                             button.style.display =
-                                 "none";
-
-                             return;
-                         }
-
-                         const text =
-                             normalizeSpace(
-                                 selection.toString()
-                             );
-
-                         const match =
-                             text.match(
-                                 /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-                             );
-
-                         if (!match) {
-
-                             currentSelectedEmail =
-                                 "";
-
-                             button.style.display =
-                                 "none";
-
-                             return;
-                         }
-
-                         currentSelectedEmail =
-                             match[0];
-
-                         const rect =
-                             selection.getRangeAt(0)
-                                 .getBoundingClientRect();
-
-                         button.style.left =
-                             (
-                                 rect.right +
-                                 window.scrollX +
-                                 8
-                             ) + "px";
-
-                         button.style.top =
-                             (
-                                 rect.top +
-                                 window.scrollY -
-                                 4
-                             ) + "px";
-
-                         button.style.display =
-                             "block";
-
-                     },
-                     80
-                 );
+                 GM_setClipboard(currentEmail);
+                 openMdpiForEmail(currentEmail);
              }
          );
 
-         document.addEventListener(
-             "mousedown",
-             event => {
+         btn.id = EMAIL_BUTTON_ID;
+
+         Object.assign(btn.style, {
+             position: "absolute",
+             zIndex: "999999",
+             padding: "6px 12px",
+             fontSize: "12px",
+             display: "none",
+             boxShadow:
+                 "0 3px 10px rgba(0,0,0,0.25)"
+         });
+
+         document.body.appendChild(btn);
+
+         document.addEventListener("mouseup", () => {
+             setTimeout(() => {
+                 const selection = window.getSelection();
 
                  if (
-                     event.target === button
+                     !selection ||
+                     selection.rangeCount === 0
                  ) {
-
+                     btn.style.display = "none";
                      return;
                  }
 
-                 button.style.display =
-                     "none";
-             }
-         );
+                 const text = selection.toString().trim();
+
+                 const match = text.match(
+                     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+                 );
+
+                 if (!match) {
+                     currentEmail = "";
+                     btn.style.display = "none";
+                     return;
+                 }
+
+                 currentEmail = match[0];
+
+                 const rect = selection
+                     .getRangeAt(0)
+                     .getBoundingClientRect();
+
+                 btn.style.left =
+                     `${rect.right + window.scrollX + 8}px`;
+
+                 btn.style.top =
+                     `${rect.top + window.scrollY - 4}px`;
+
+                 btn.style.display = "block";
+             }, 80);
+         });
+
+         document.addEventListener("mousedown", event => {
+             if (event.target === btn) return;
+
+             btn.style.display = "none";
+         });
      }
 
      // =====================================================
-     // 23. PUBPEER
-     // =====================================================
-
-     function runPubPeerPage() {
-
-         // PubPeer URL already contains q=.
-         // No extra search click required.
-
-         return;
-     }
-
-     // =====================================================
-     // 24. INITIALIZATION
+     // 21. INITIALIZATION
      // =====================================================
 
      function initialize() {
-
          console.log(
-             "[Scopus Helper] v" +
-             VERSION +
-             " initialized."
+             `[Scopus Helper] v${VERSION} initialized`
          );
 
          if (isScopusPage()) {
-
-             startScopusMonitor();
+             runScopusPage();
 
          } else if (isMdpiPage()) {
-
              runMdpiPage();
 
-         } else if (isPubPeerPage()) {
-
-             runPubPeerPage();
-
          } else if (isRetractionPage()) {
-
              runRetractionPage();
-
          }
 
-         // General selected-email feature
-
+         // Available on non-MDPI webpages.
          createSelectedEmailMdpiButton();
      }
 
-     if (
-         document.readyState === "loading"
-     ) {
-
+     if (document.readyState === "loading") {
          document.addEventListener(
              "DOMContentLoaded",
              initialize,
-             {
-                 once: true
-             }
+             { once: true }
          );
-
      } else {
-
          initialize();
-
      }
 
  })();
