@@ -1,958 +1,1996 @@
-// ==UserScript==
-// @name         Scopus Modifier Extension
-// @namespace    http://tampermonkey.net/
-// @version      5.9
-// @icon64       https://cdn.elsevier.io/verona/includes/favicons/favicon-96x96.png
-// @description  Scopus quick screening + instant MDPI / PubPeer / Retraction tools
-// @author       Jiali Tang, modified from SKDAY
-// @contributor  liqi0601 (Original Author)
-// @match        https://www.scopus.com/authid/detail.uri?*
-// @match        https://www2.scopus.com/authid/detail.uri?*
-// @match        https://susy.mdpi.com/special_issue/process/*
-// @match        https://pubpeer.org/*
-// @match        https://retractiondatabase.org/RetractionSearch.aspx*
-// @match        *://*/*
-// @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
-// @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
-// @grant        GM_setClipboard
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @connect      www.scopus.com
-// ==/UserScript==
-
-(function () {
-    'use strict';
-
-    const DEFAULT_MDPI_INTERNAL_URL =
-        "https://susy.mdpi.com/special_issue/process/1877901";
-
-    const MDPI_URL_STORAGE_KEY =
-        "scopusHelperMdpiInternalUrl";
-
-    const PUBPEER_SEARCH_URL =
-        "https://pubpeer.org/search?q=";
-
-    const url = window.location.href;
-
-    if (url.includes("scopus.com/authid/detail.uri")) {
-        runScopusPage();
-    }
-    else if (isMdpiProcessPage()) {
-        runMdpiPage();
-    }
-    else if (url.includes("pubpeer.org")) {
-        runPubPeerPage();
-    }
-    else if (url.includes("retractiondatabase.org/RetractionSearch.aspx")) {
-        runRetractionPage();
-    }
-
-    createSelectedEmailMdpiButton();
-    createMdpiSettingsLauncher();
-
-    // =====================================================
-    // Scopus
-    // =====================================================
-
-    function runScopusPage() {
-
-        if (url.startsWith("https://www2.scopus.com/authid/detail.uri?authorId=")) {
-            window.location.href =
-                url.replace("www2.scopus.com", "www.scopus.com");
-            return;
-        }
-
-        const params = new URLSearchParams(window.location.search);
-        const authorId = params.get("authorId");
-
-        if (!authorId) return;
-
-        const apiUrl =
-            `https://www.scopus.com/api/authors/${authorId}`;
-
-        window.addEventListener("load", () => {
-
-            fetch(apiUrl)
-                .then(res => res.json())
-                .then(data => {
-
-                    const rawName =
-                        data.preferredName?.full || "";
-
-                    const name =
-                        formatName(rawName);
-
-                    const email =
-                        data.emailAddress || "";
-
-                    const institution =
-                        data.latestAffiliatedInstitution?.name || "";
-
-                    createButtonBar(
-                        name,
-                        email,
-                        institution
-                    );
-
-                })
-                .catch(err => {
-
-                    console.error(err);
-
-                    createButtonBar("", "", "");
+ // ==UserScript==
+ // @name         Scopus Modifier Extension
+ // @namespace    http://tampermonkey.net/
+ // @version      6.0
+ // @description  Scopus quick screening + MDPI / PubPeer / Retraction tools
+ // @author       Jiali Tang, modified from SKDAY
+ // @contributor  liqi0601 (Original Author)
+ // @match        https://www.scopus.com/authid/detail.uri*
+ // @match        https://www2.scopus.com/authid/detail.uri*
+ // @match        https://susy.mdpi.com/special_issue/process/*
+ // @match        https://pubpeer.org/*
+ // @match        https://retractiondatabase.org/RetractionSearch.aspx*
+ // @match        *://*/*
+ // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
+ // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/Scopus-Modifier-Extension.user.js
+ // @grant        GM_setClipboard
+ // @grant        GM_getValue
+ // @grant        GM_setValue
+ // @run-at       document-idle
+ // ==/UserScript==
+
+ (function () {
+     'use strict';
+
+     // =====================================================
+     // 1. CONFIGURATION
+     // =====================================================
+
+     const VERSION = "6.0";
+
+     const DEFAULT_MDPI_INTERNAL_URL =
+         "https://susy.mdpi.com/special_issue/process/1877901";
+
+     const MDPI_URL_STORAGE_KEY =
+         "scopusHelperMdpiInternalUrl";
+
+     const PUBPEER_SEARCH_URL =
+         "https://pubpeer.org/search?q=";
+
+     const RETRACTION_BASE_URL =
+         "https://retractiondatabase.org/RetractionSearch.aspx";
+
+     const SCOPUS_BAR_ID = "scopus-ge-button-bar";
+
+     const SELECTED_EMAIL_BUTTON_ID =
+         "selected-email-mdpi-btn";
+
+     const MDPI_SETTINGS_ID =
+         "mdpi-url-settings-overlay";
+
+     const hostname = window.location.hostname;
+
+     // =====================================================
+     // 2. PAGE IDENTIFICATION
+     // =====================================================
+
+     function isScopusPage() {
+         return (
+             /(^|\.)scopus\.com$/i.test(hostname) &&
+             window.location.pathname.includes("/authid/detail.uri")
+         );
+     }
 
-                });
-        });
-    }
+     function isMdpiPage() {
+         return (
+             hostname === "susy.mdpi.com" &&
+             window.location.pathname.startsWith(
+                 "/special_issue/process/"
+             )
+         );
+     }
 
-    // =====================================================
-    // Button Bar
-    // =====================================================
+     function isPubPeerPage() {
+         return hostname === "pubpeer.org";
+     }
 
-    function createButtonBar(name, email, institution) {
+     function isRetractionPage() {
+         return (
+             hostname === "retractiondatabase.org" &&
+             window.location.pathname.toLowerCase()
+                 .includes("retractionsearch.aspx")
+         );
+     }
 
-        if (document.getElementById("scopus-ge-button-bar")) return;
+     // =====================================================
+     // 3. GENERAL HELPERS
+     // =====================================================
 
-        const bar = document.createElement("div");
+     function normalizeSpace(value) {
+         return String(value || "")
+             .replace(/\s+/g, " ")
+             .trim();
+     }
 
-        bar.id = "scopus-ge-button-bar";
+     function formatName(scopusName) {
 
-        Object.assign(bar.style, {
-            position: "fixed",
-            top: "30px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: "999999",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            background: "#ffffff",
-            border: "1px solid #ccc",
-            borderRadius: "10px",
-            boxShadow: "0 3px 12px rgba(0,0,0,0.18)",
-            padding: "10px"
-        });
+         const raw = normalizeSpace(scopusName);
 
-        const emailText = document.createElement("span");
+         if (!raw) return "";
 
-        emailText.textContent = email || "No email";
-
-        emailText.title =
-            email
-                ? "Click to copy email"
-                : "No email found";
+         // Example:
+         // Kumar, Rakshak -> Rakshak Kumar
 
-        Object.assign(emailText.style, {
-            padding: "8px 12px",
-            borderRadius: "8px",
-            background: email ? "#f6ffed" : "#fff1f0",
-            color: email ? "#237804" : "#a8071a",
-            fontSize: "13px",
-            fontWeight: "600",
-            cursor: email ? "pointer" : "default",
-            border:
-                "1px solid " +
-                (email ? "#b7eb8f" : "#ffa39e")
-        });
+         if (raw.includes(",")) {
 
-        emailText.onclick = () => {
-
-            if (!email) return;
+             const parts = raw.split(",");
 
-            GM_setClipboard(email);
+             const lastName =
+                 normalizeSpace(parts.shift());
 
-        };
+             const firstName =
+                 normalizeSpace(parts.join(" "));
 
-        bar.appendChild(emailText);
+             return normalizeSpace(
+                 firstName + " " + lastName
+             );
+         }
 
-        const buttons = [
+         return raw;
+     }
 
-            {
-                text: "MDPI",
-                color: "#1677ff",
-                onclick: () => {
+     function isVisible(element) {
 
-                    if (!email) return;
+         if (!element || !element.isConnected) {
+             return false;
+         }
 
-                    GM_setClipboard(email);
+         const style = window.getComputedStyle(element);
 
-                    openMdpiForEmail(email);
-                }
-            },
+         return (
+             style.display !== "none" &&
+             style.visibility !== "hidden" &&
+             element.getClientRects().length > 0
+         );
+     }
 
-            {
-                text: "PubPeer",
-                color: "#722ed1",
-                onclick: () => {
+     function waitForElement(
+         getter,
+         callback,
+         timeout = 10000
+     ) {
 
-                    if (!name) return;
+         const start = Date.now();
 
-                    window.open(
-                        `${PUBPEER_SEARCH_URL}${encodeURIComponent(name)}`,
-                        "_blank"
-                    );
-                }
-            },
+         const timer = setInterval(() => {
 
-            {
-                text: "Retraction",
-                color: "#fa541c",
-                onclick: () => {
+             let element = null;
 
-                    if (!name) return;
+             try {
+                 element = getter();
+             } catch (error) {
+                 console.debug(error);
+             }
 
-                    window.open(
-                        buildRetractionSearchUrl(name),
-                        "_blank"
-                    );
-                }
-            },
+             if (element) {
 
-            {
-                text: "Google",
-                color: "#595959",
-                onclick: () => {
+                 clearInterval(timer);
 
-                    const query =
-                        `${name} ${institution}`;
+                 callback(element);
 
-                    window.open(
-                        `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-                        "_blank"
-                    );
-                }
-            },
+                 return;
+             }
 
-            {
-                text: "Scholar",
-                color: "#13c2c2",
-                onclick: () => {
+             if (Date.now() - start > timeout) {
 
-                    const query =
-                        `${name} ${institution}`;
+                 clearInterval(timer);
 
-                    window.open(
-                        `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
-                        "_blank"
-                    );
-                }
-            }
+             }
 
-        ];
+         }, 100);
 
-        buttons.forEach(config => {
+         return () => clearInterval(timer);
+     }
 
-            const btn = document.createElement("button");
+     function fillInput(input, value) {
 
-            btn.textContent = config.text;
+         if (!input) return;
 
-            Object.assign(btn.style, {
-                padding: "8px 12px",
-                border: "none",
-                borderRadius: "8px",
-                background: config.color,
-                color: "white",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: "600"
-            });
+         input.focus();
 
-            btn.onclick = config.onclick;
+         const prototype =
+             input instanceof HTMLTextAreaElement
+                 ? HTMLTextAreaElement.prototype
+                 : HTMLInputElement.prototype;
 
-            bar.appendChild(btn);
+         const nativeSetter =
+             Object.getOwnPropertyDescriptor(
+                 prototype,
+                 "value"
+             )?.set;
 
-        });
+         if (nativeSetter) {
 
-        const settingsBtn = document.createElement("button");
+             nativeSetter.call(input, value);
 
-        settingsBtn.textContent = "⚙ MDPI网页";
+         } else {
 
-        Object.assign(settingsBtn.style, {
-            padding: "8px 12px",
-            border: "1px solid #1677ff",
-            borderRadius: "8px",
-            background: "#ffffff",
-            color: "#1677ff",
-            cursor: "pointer",
-            fontSize: "13px",
-            fontWeight: "600"
-        });
+             input.value = value;
 
-        settingsBtn.onclick = showMdpiSettingsDialog;
+         }
 
-        bar.appendChild(settingsBtn);
+         input.dispatchEvent(
+             new Event("input", {
+                 bubbles: true
+             })
+         );
 
-        document.body.appendChild(bar);
-    }
+         input.dispatchEvent(
+             new Event("change", {
+                 bubbles: true
+             })
+         );
 
-    // =====================================================
-    // Selected Email Floating Button
-    // =====================================================
+         input.dispatchEvent(
+             new KeyboardEvent("keyup", {
+                 bubbles: true,
+                 key: "Enter"
+             })
+         );
+     }
 
-    function createSelectedEmailMdpiButton() {
+     function createButton(
+         text,
+         color,
+         onclick
+     ) {
 
-        if (url.includes("susy.mdpi.com")) return;
+         const button =
+             document.createElement("button");
 
-        window.addEventListener("load", () => {
+         button.textContent = text;
 
-            if (document.getElementById("selected-email-mdpi-btn")) return;
+         Object.assign(button.style, {
 
-            const btn = document.createElement("button");
+             padding: "8px 12px",
+             border: "none",
+             borderRadius: "8px",
+             background: color,
+             color: "#ffffff",
+             cursor: "pointer",
+             fontSize: "13px",
+             fontWeight: "600",
+             whiteSpace: "nowrap"
 
-            btn.id = "selected-email-mdpi-btn";
-            btn.textContent = "MDPI";
+         });
 
-            Object.assign(btn.style, {
-                position: "absolute",
-                zIndex: "999999",
-                padding: "6px 12px",
-                border: "none",
-                borderRadius: "6px",
-                background: "#1677ff",
-                color: "white",
-                cursor: "pointer",
-                fontSize: "12px",
-                fontWeight: "700",
-                boxShadow: "0 3px 10px rgba(0,0,0,0.25)",
-                display: "none"
-            });
+         button.addEventListener(
+             "click",
+             onclick
+         );
 
-            document.body.appendChild(btn);
+         return button;
+     }
 
-            let currentEmail = "";
+     // =====================================================
+     // 4. SCOPUS AUTHOR DETECTION
+     // =====================================================
 
-            document.addEventListener("mouseup", () => {
+     let currentAuthorId = "";
 
-                setTimeout(() => {
+     let currentAuthorData = {
+         id: "",
+         name: "",
+         email: "",
+         institution: ""
+     };
 
-                    const selection =
-                        window.getSelection();
+     let authorRequestNumber = 0;
 
-                    const selectedText =
-                        selection.toString().trim();
+     function getScopusAuthorId() {
 
-                    const emailMatch =
-                        selectedText.match(
-                            /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-                        );
+         const params =
+             new URLSearchParams(
+                 window.location.search
+             );
 
-                    if (!emailMatch || selection.rangeCount === 0) {
+         return (
+             params.get("authorId") ||
+             params.get("authorID") ||
+             ""
+         );
+     }
 
-                        btn.style.display = "none";
-                        currentEmail = "";
+     // =====================================================
+     // 5. READ NAME DIRECTLY FROM SCOPUS PAGE
+     // =====================================================
 
-                        return;
-                    }
+     function getScopusDisplayedName() {
 
-                    currentEmail = emailMatch[0];
+         const selectors = [
 
-                    const rect =
-                        selection.getRangeAt(0)
-                            .getBoundingClientRect();
+             '[data-testid="author-name"]',
 
-                    btn.style.left =
-                        `${rect.right + window.scrollX + 8}px`;
+             '[data-testid*="author-name"]',
 
-                    btn.style.top =
-                        `${rect.top + window.scrollY - 4}px`;
+             'h1',
 
-                    btn.style.display = "block";
+             '[class*="AuthorName"]',
 
-                }, 80);
-            });
+             '[class*="authorName"]'
 
-            document.addEventListener("mousedown", event => {
+         ];
 
-                if (event.target === btn) return;
+         for (const selector of selectors) {
 
-                btn.style.display = "none";
+             const elements =
+                 document.querySelectorAll(selector);
 
-            });
+             for (const element of elements) {
 
-            btn.onclick = event => {
+                 if (!isVisible(element)) {
+                     continue;
+                 }
 
-                event.preventDefault();
-                event.stopPropagation();
+                 const raw =
+                     normalizeSpace(
+                         element.textContent
+                     );
 
-                if (!currentEmail) return;
+                 if (!raw) continue;
 
-                GM_setClipboard(currentEmail);
+                 // Prefer Scopus name:
+                 // Last name, First name
 
-                openMdpiForEmail(currentEmail);
-            };
-        });
-    }
+                 if (
+                     raw.includes(",") &&
+                     raw.length < 150 &&
+                     !raw.includes("@")
+                 ) {
 
-    // =====================================================
-    // MDPI URL Settings
-    // =====================================================
+                     return formatName(raw);
 
-    function getMdpiInternalUrl() {
+                 }
+             }
+         }
 
-        return GM_getValue(
-            MDPI_URL_STORAGE_KEY,
-            DEFAULT_MDPI_INTERNAL_URL
-        );
-    }
+         return "";
+     }
 
-    function normalizeMdpiUrl(rawUrl) {
+     // =====================================================
+     // 6. SCOPUS API
+     // =====================================================
 
-        const value = (rawUrl || "").trim();
+     async function fetchScopusAuthor(authorId) {
 
-        if (!value) {
-            throw new Error("请输入 MDPI 内部网页地址。");
-        }
+         const apiUrl =
+             "https://www.scopus.com/api/authors/" +
+             encodeURIComponent(authorId);
 
-        let parsed;
+         const response = await fetch(
+             apiUrl,
+             {
+                 credentials: "include",
+                 cache: "no-store"
+             }
+         );
 
-        try {
-            parsed = new URL(value);
-        } catch (error) {
-            throw new Error("网页地址格式不正确，请输入完整的 https:// 地址。");
-        }
+         if (!response.ok) {
 
-        if (
-            parsed.protocol !== "https:" ||
-            parsed.hostname !== "susy.mdpi.com" ||
-            !parsed.pathname.startsWith("/special_issue/process/")
-        ) {
-            throw new Error(
-                "请输入 https://susy.mdpi.com/special_issue/process/... 格式的网页。"
-            );
-        }
+             throw new Error(
+                 "Scopus API HTTP " +
+                 response.status
+             );
 
-        parsed.search = "";
-        parsed.hash = "";
+         }
 
-        return parsed.toString().replace(/\/$/, "");
-    }
+         const data = await response.json();
 
-    function buildMdpiUrl(email) {
+         return {
 
-        const target = new URL(getMdpiInternalUrl());
+             id: authorId,
 
-        target.searchParams.set("geEmail", email);
+             name: formatName(
+                 data.preferredName?.full || ""
+             ),
 
-        return target.toString();
-    }
+             email:
+                 data.emailAddress || "",
 
-    function openMdpiForEmail(email) {
+             institution:
+                 data.latestAffiliatedInstitution?.name || ""
 
-        window.open(buildMdpiUrl(email), "_blank");
-    }
+         };
+     }
 
-    function isMdpiProcessPage() {
+     // =====================================================
+     // 7. UPDATE AUTHOR DATA
+     // =====================================================
 
-        return (
-            window.location.hostname === "susy.mdpi.com" &&
-            window.location.pathname.startsWith("/special_issue/process/")
-        );
-    }
+     async function updateCurrentAuthor(
+         authorId,
+         force = false
+     ) {
 
-    function currentMdpiPageUrl() {
+         if (!authorId) return;
 
-        if (!isMdpiProcessPage()) return "";
+         if (
+             !force &&
+             authorId === currentAuthorId
+         ) {
 
-        return `${window.location.origin}${window.location.pathname}`
-            .replace(/\/$/, "");
-    }
+             return;
+         }
 
-    function createMdpiSettingsLauncher() {
+         currentAuthorId = authorId;
 
-        if (!isMdpiProcessPage()) return;
+         const requestNumber =
+             ++authorRequestNumber;
 
-        window.addEventListener("load", () => {
+         // Immediately invalidate old author information
 
-            if (document.getElementById("mdpi-url-settings-launcher")) return;
+         currentAuthorData = {
 
-            const btn = document.createElement("button");
+             id: authorId,
+             name: getScopusDisplayedName(),
+             email: "",
+             institution: ""
 
-            btn.id = "mdpi-url-settings-launcher";
-            btn.textContent = "⚙ 设置为邮箱验证页";
+         };
 
-            Object.assign(btn.style, {
-                position: "fixed",
-                right: "20px",
-                bottom: "20px",
-                zIndex: "999999",
-                padding: "9px 14px",
-                border: "none",
-                borderRadius: "8px",
-                background: "#1677ff",
-                color: "white",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: "700",
-                boxShadow: "0 3px 12px rgba(0,0,0,0.25)"
-            });
+         // Remove old button bar
 
-            btn.onclick = showMdpiSettingsDialog;
+         removeScopusButtonBar();
 
-            document.body.appendChild(btn);
-        });
-    }
+         // Create a new bar for the current author
 
-    function showMdpiSettingsDialog() {
+         createScopusButtonBar();
 
-        const existing = document.getElementById("mdpi-url-settings-overlay");
+         try {
 
-        if (existing) existing.remove();
+             const result =
+                 await fetchScopusAuthor(authorId);
 
-        const overlay = document.createElement("div");
-        overlay.id = "mdpi-url-settings-overlay";
+             // Prevent old asynchronous responses
+             // from overwriting the new author's data
 
-        Object.assign(overlay.style, {
-            position: "fixed",
-            inset: "0",
-            zIndex: "1000000",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.38)"
-        });
+             if (
+                 requestNumber !== authorRequestNumber ||
+                 authorId !== getScopusAuthorId()
+             ) {
 
-        const panel = document.createElement("div");
+                 return;
 
-        Object.assign(panel.style, {
-            width: "min(620px, calc(100vw - 40px))",
-            boxSizing: "border-box",
-            padding: "22px",
-            borderRadius: "12px",
-            background: "#ffffff",
-            boxShadow: "0 8px 30px rgba(0,0,0,0.28)",
-            fontFamily: "Arial, sans-serif"
-        });
+             }
 
-        const title = document.createElement("div");
-        title.textContent = "MDPI 邮箱验证网页";
-        Object.assign(title.style, {
-            marginBottom: "8px",
-            color: "#1f1f1f",
-            fontSize: "18px",
-            fontWeight: "700"
-        });
-
-        const description = document.createElement("div");
-        description.textContent =
-            "保存后会一直使用这个网页，除非你再次修改或恢复默认。";
-        Object.assign(description.style, {
-            marginBottom: "14px",
-            color: "#595959",
-            fontSize: "13px",
-            lineHeight: "1.5"
-        });
+             currentAuthorData = {
 
-        const input = document.createElement("input");
-        input.type = "url";
-        input.value = getMdpiInternalUrl();
-        input.placeholder =
-            "https://susy.mdpi.com/special_issue/process/......";
-        Object.assign(input.style, {
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "10px 12px",
-            border: "1px solid #d9d9d9",
-            borderRadius: "7px",
-            fontSize: "14px"
-        });
+                 ...result,
 
-        const status = document.createElement("div");
-        Object.assign(status.style, {
-            minHeight: "20px",
-            marginTop: "8px",
-            color: "#cf1322",
-            fontSize: "12px"
-        });
+                 name:
+                     getScopusDisplayedName() ||
+                     result.name
 
-        const actions = document.createElement("div");
-        Object.assign(actions.style, {
-            display: "flex",
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-            gap: "8px",
-            marginTop: "10px"
-        });
+             };
 
-        function addAction(text, color, handler, outlined = false) {
+             createScopusButtonBar(true);
 
-            const btn = document.createElement("button");
-            btn.textContent = text;
-            Object.assign(btn.style, {
-                padding: "8px 12px",
-                border: outlined ? `1px solid ${color}` : "none",
-                borderRadius: "7px",
-                background: outlined ? "#ffffff" : color,
-                color: outlined ? color : "#ffffff",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: "600"
-            });
-            btn.onclick = handler;
-            actions.appendChild(btn);
-        }
+         } catch (error) {
 
-        const currentPage = currentMdpiPageUrl();
+             console.warn(
+                 "[Scopus Helper] API error:",
+                 error
+             );
 
-        if (currentPage) {
-            addAction("使用当前页面", "#722ed1", () => {
-                input.value = currentPage;
-                status.textContent = "已填入当前页面，请点击“保存”。";
-                status.style.color = "#531dab";
-            }, true);
-        }
+             if (
+                 requestNumber !== authorRequestNumber
+             ) {
 
-        addAction("恢复默认", "#8c8c8c", () => {
-            input.value = DEFAULT_MDPI_INTERNAL_URL;
-            status.textContent = "已填入默认网页，请点击“保存”。";
-            status.style.color = "#595959";
-        }, true);
+                 return;
 
-        addAction("取消", "#8c8c8c", () => overlay.remove(), true);
+             }
 
-        addAction("保存", "#1677ff", () => {
+             currentAuthorData.name =
+                 getScopusDisplayedName() ||
+                 currentAuthorData.name;
 
-            try {
-                const normalized = normalizeMdpiUrl(input.value);
-                GM_setValue(MDPI_URL_STORAGE_KEY, normalized);
-                input.value = normalized;
-                status.textContent = "已保存。以后会继续使用这个网页。";
-                status.style.color = "#389e0d";
-                setTimeout(() => overlay.remove(), 700);
-            } catch (error) {
-                status.textContent = error.message;
-                status.style.color = "#cf1322";
-            }
-        });
+             createScopusButtonBar(true);
 
-        panel.appendChild(title);
-        panel.appendChild(description);
-        panel.appendChild(input);
-        panel.appendChild(status);
-        panel.appendChild(actions);
-        overlay.appendChild(panel);
-        document.body.appendChild(overlay);
+         }
+     }
 
-        overlay.addEventListener("mousedown", event => {
-            if (event.target === overlay) overlay.remove();
-        });
+     // =====================================================
+     // 8. LIVE AUTHOR NAME
+     // =====================================================
 
-        input.focus();
-        input.select();
-    }
+     function getCurrentAuthorName() {
 
-    // =====================================================
-    // MDPI
-    // =====================================================
+         const actualAuthorId =
+             getScopusAuthorId();
 
-    function runMdpiPage() {
+         if (
+             !actualAuthorId ||
+             actualAuthorId !== currentAuthorData.id
+         ) {
 
-        const params =
-            new URLSearchParams(window.location.search);
+             return "";
 
-        const email =
-            params.get("geEmail");
+         }
 
-        if (!email) return;
+         const displayedName =
+             getScopusDisplayedName();
 
-        closeMdpiPopup();
+         if (displayedName) {
 
-        waitForElement(
-            findEmailInput,
-            input => {
+             currentAuthorData.name =
+                 displayedName;
 
-                fillInput(input, email);
+             return displayedName;
 
-                waitForElement(
-                    () => findCorrectNextButton(input),
-                    nextBtn => {
+         }
 
-                        nextBtn.click();
+         return currentAuthorData.name || "";
+     }
 
-                        setTimeout(closeMdpiPopup, 300);
-                        setTimeout(closeMdpiPopup, 800);
-                        setTimeout(closeMdpiPopup, 1500);
+     // =====================================================
+     // 9. SCOPUS BUTTON BAR
+     // =====================================================
 
-                    },
-                    3000
-                );
-            },
-            3000
-        );
-    }
+     function removeScopusButtonBar() {
 
-    // =====================================================
-    // PubPeer
-    // =====================================================
+         document.getElementById(
+             SCOPUS_BAR_ID
+         )?.remove();
+     }
 
-    function runPubPeerPage() {
+     function createScopusButtonBar(
+         replace = false
+     ) {
 
-        // URL 本身已经包含 search?q=
-        // 不再自动点击 search
-        return;
-    }
+         if (replace) {
 
-    // =====================================================
-    // Retraction
-    // =====================================================
+             removeScopusButtonBar();
 
-    function runRetractionPage() {
+         }
 
-        // 已经直接进入最终结果页
-        // 不再做任何自动搜索动作
-        return;
-    }
+         if (
+             document.getElementById(
+                 SCOPUS_BAR_ID
+             )
+         ) {
 
-    // =====================================================
-    // Helper
-    // =====================================================
+             return;
 
-    function buildRetractionSearchUrl(name) {
+         }
 
-        const encodedName =
-            encodeURIComponent(name)
-                .replace(/%20/g, "+");
+         if (!document.body) return;
 
-        return `https://retractiondatabase.org/RetractionSearch.aspx?geName=${encodedName}#?geName%3d${encodedName}%26auth%3d${encodedName}`;
-    }
+         const bar =
+             document.createElement("div");
 
-    function waitForElement(getter, callback, timeout = 3000) {
+         bar.id = SCOPUS_BAR_ID;
 
-        const start = Date.now();
+         Object.assign(bar.style, {
 
-        const timer = setInterval(() => {
+             position: "fixed",
+             top: "30px",
+             left: "50%",
+             transform: "translateX(-50%)",
+             zIndex: "999999",
+             display: "flex",
+             alignItems: "center",
+             flexWrap: "wrap",
+             justifyContent: "center",
+             gap: "8px",
+             background: "#ffffff",
+             border: "1px solid #ccc",
+             borderRadius: "10px",
+             boxShadow:
+                 "0 3px 12px rgba(0,0,0,0.18)",
+             padding: "10px",
+             maxWidth: "95vw",
+             fontFamily: "Arial, sans-serif"
 
-            const el = getter();
+         });
 
-            if (el) {
+         // Current author email
 
-                clearInterval(timer);
+         const emailText =
+             document.createElement("span");
 
-                callback(el);
+         const email =
+             currentAuthorData.email;
 
-                return;
-            }
+         emailText.textContent =
+             email || "No email";
 
-            if (Date.now() - start > timeout) {
+         emailText.title =
+             email
+                 ? "Click to copy email"
+                 : "No email found";
 
-                clearInterval(timer);
+         Object.assign(emailText.style, {
 
-            }
+             padding: "8px 12px",
+             borderRadius: "8px",
+             background:
+                 email ? "#f6ffed" : "#fff1f0",
+             color:
+                 email ? "#237804" : "#a8071a",
+             fontSize: "13px",
+             fontWeight: "600",
+             cursor:
+                 email ? "pointer" : "default",
+             border:
+                 "1px solid " +
+                 (email ? "#b7eb8f" : "#ffa39e")
 
-        }, 50);
-    }
+         });
 
-    function findCorrectNextButton(input) {
+         emailText.onclick = () => {
 
-        const buttons = Array.from(
-            document.querySelectorAll(
-                "button, input[type='button'], input[type='submit'], a"
-            )
-        );
+             const currentEmail =
+                 currentAuthorData.email;
 
-        const nextButtons =
-            buttons.filter(el => {
+             if (currentEmail) {
 
-                const text =
-                    (el.innerText || el.value || "")
-                        .trim()
-                        .toLowerCase();
+                 GM_setClipboard(currentEmail);
 
-                return text === "next";
-            });
+             }
+         };
 
-        if (!nextButtons.length) return null;
+         bar.appendChild(emailText);
 
-        const inputRect =
-            input.getBoundingClientRect();
+         // MDPI button
 
-        nextButtons.sort((a, b) => {
+         bar.appendChild(
+             createButton(
+                 "MDPI",
+                 "#1677ff",
+                 () => {
 
-            const ra =
-                a.getBoundingClientRect();
+                     const email =
+                         currentAuthorData.email;
 
-            const rb =
-                b.getBoundingClientRect();
+                     if (!email) {
 
-            const da =
-                Math.abs(ra.top - inputRect.bottom) +
-                Math.abs(ra.left - inputRect.left);
+                         alert(
+                             "No email found for this author."
+                         );
 
-            const db =
-                Math.abs(rb.top - inputRect.bottom) +
-                Math.abs(rb.left - inputRect.left);
+                         return;
+                     }
 
-            return da - db;
-        });
+                     GM_setClipboard(email);
 
-        return nextButtons[0];
-    }
+                     openMdpiForEmail(email);
+                 }
+             )
+         );
 
-    function closeMdpiPopup() {
+         // PubPeer button
 
-        const candidates = Array.from(
-            document.querySelectorAll(
-                "button, a, span, div"
-            )
-        );
+         bar.appendChild(
+             createButton(
+                 "PubPeer",
+                 "#722ed1",
+                 () => {
 
-        const closeBtn =
-            candidates.find(el => {
+                     const name =
+                         getCurrentAuthorName();
 
-                const text =
-                    (el.innerText || el.textContent || "")
-                        .trim();
+                     if (!name) {
 
-                const aria =
-                    (el.getAttribute("aria-label") || "")
-                        .toLowerCase();
+                         alert(
+                             "Current author name not found."
+                         );
 
-                const cls =
-                    (el.className || "")
-                        .toString()
-                        .toLowerCase();
+                         return;
+                     }
 
-                return (
-                    text === "×" ||
-                    text === "x" ||
-                    aria.includes("close") ||
-                    cls.includes("close")
-                );
-            });
+                     window.open(
+                         PUBPEER_SEARCH_URL +
+                         encodeURIComponent(name),
+                         "_blank"
+                     );
+                 }
+             )
+         );
 
-        if (closeBtn) closeBtn.click();
-    }
+         // Retraction button
 
-    function findEmailInput() {
+         bar.appendChild(
+             createButton(
+                 "Retraction",
+                 "#fa541c",
+                 () => {
 
-        const selectors = [
+                     const name =
+                         getCurrentAuthorName();
 
-            "input[type='email']",
-            "input[name*='email' i]",
-            "input[id*='email' i]",
-            "input[placeholder*='email' i]"
+                     if (!name) {
 
-        ];
+                         alert(
+                             "Current author name not found."
+                         );
 
-        for (const selector of selectors) {
+                         return;
+                     }
 
-            const el =
-                document.querySelector(selector);
+                     const targetUrl =
+                         buildRetractionSearchUrl(name);
 
-            if (
-                el &&
-                !el.disabled &&
-                el.offsetParent !== null
-            ) {
-                return el;
-            }
-        }
+                     console.log(
+                         "[Scopus Helper] Retraction author:",
+                         name
+                     );
 
-        const labels = Array.from(
-            document.querySelectorAll(
-                "label, td, th, div, span"
-            )
-        );
+                     window.open(
+                         targetUrl,
+                         "_blank"
+                     );
+                 }
+             )
+         );
 
-        const emailLabel =
-            labels.find(el =>
+         // Google button
 
-                /email/i.test(el.textContent || "") &&
-                (el.textContent || "").length < 80
+         bar.appendChild(
+             createButton(
+                 "Google",
+                 "#595959",
+                 () => {
 
-            );
+                     const name =
+                         getCurrentAuthorName();
 
-        if (emailLabel) {
+                     const institution =
+                         currentAuthorData.institution;
 
-            const parent =
-                emailLabel.closest("tr, div, form")
-                || document.body;
+                     if (!name) return;
 
-            const input =
-                parent.querySelector(
-                    "input[type='text'], input:not([type])"
-                );
+                     const query =
+                         name + " " + institution;
 
-            if (
-                input &&
-                !input.disabled &&
-                input.offsetParent !== null
-            ) {
-                return input;
-            }
-        }
+                     window.open(
+                         "https://www.google.com/search?q=" +
+                         encodeURIComponent(query),
+                         "_blank"
+                     );
+                 }
+             )
+         );
 
-        return null;
-    }
+         // Scholar button
 
-    function fillInput(input, value) {
+         bar.appendChild(
+             createButton(
+                 "Scholar",
+                 "#13c2c2",
+                 () => {
 
-        input.focus();
+                     const name =
+                         getCurrentAuthorName();
 
-        const nativeInputValueSetter =
-            Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype,
-                "value"
-            )?.set;
+                     const institution =
+                         currentAuthorData.institution;
 
-        if (nativeInputValueSetter) {
+                     if (!name) return;
 
-            nativeInputValueSetter.call(
-                input,
-                value
-            );
+                     const query =
+                         name + " " + institution;
 
-        } else {
+                     window.open(
+                         "https://scholar.google.com/scholar?q=" +
+                         encodeURIComponent(query),
+                         "_blank"
+                     );
+                 }
+             )
+         );
 
-            input.value = value;
+         // MDPI settings button
 
-        }
+         bar.appendChild(
+             createButton(
+                 "⚙ MDPI网页",
+                 "#1677ff",
+                 showMdpiSettingsDialog
+             )
+         );
 
-        input.dispatchEvent(
-            new Event("input", {
-                bubbles: true
-            })
-        );
+         document.body.appendChild(bar);
+     }
 
-        input.dispatchEvent(
-            new Event("change", {
-                bubbles: true
-            })
-        );
+     // =====================================================
+     // 10. SCOPUS AUTHOR CHANGE MONITOR
+     // =====================================================
 
-        input.dispatchEvent(
-            new KeyboardEvent("keyup", {
-                bubbles: true
-            })
-        );
+     function startScopusMonitor() {
 
-        input.dispatchEvent(
-            new KeyboardEvent("keydown", {
-                bubbles: true
-            })
-        );
-    }
+         if (
+             hostname === "www2.scopus.com"
+         ) {
 
-    function formatName(scopusName) {
+             const newUrl =
+                 window.location.href.replace(
+                     "www2.scopus.com",
+                     "www.scopus.com"
+                 );
 
-        if (!scopusName) return "";
+             window.location.replace(newUrl);
 
-        if (scopusName.includes(",")) {
+             return;
+         }
 
-            const parts =
-                scopusName.split(",");
+         function checkAuthor() {
 
-            const last =
-                parts[0].trim();
+             const authorId =
+                 getScopusAuthorId();
 
-            const first =
-                parts.slice(1)
-                    .join(",")
-                    .trim();
+             if (!authorId) return;
 
-            return `${first} ${last}`.trim();
-        }
+             if (
+                 authorId !== currentAuthorId
+             ) {
 
-        return scopusName.trim();
-    }
+                 updateCurrentAuthor(authorId);
 
-})();
+                 return;
+             }
+
+             const displayedName =
+                 getScopusDisplayedName();
+
+             if (
+                 displayedName &&
+                 displayedName !== currentAuthorData.name
+             ) {
+
+                 currentAuthorData.name =
+                     displayedName;
+
+             }
+         }
+
+         // Initial detection
+
+         checkAuthor();
+
+         // Scopus sometimes changes its content
+         // without a complete page reload.
+
+         setInterval(
+             checkAuthor,
+             700
+         );
+
+         window.addEventListener(
+             "popstate",
+             checkAuthor
+         );
+
+         window.addEventListener(
+             "pageshow",
+             checkAuthor
+         );
+
+         // Also check after tab becomes active
+
+         document.addEventListener(
+             "visibilitychange",
+             () => {
+
+                 if (!document.hidden) {
+
+                     checkAuthor();
+
+                 }
+             }
+         );
+     }
+
+     // =====================================================
+     // 11. RETRACTION URL
+     // =====================================================
+
+     function buildRetractionSearchUrl(name) {
+
+         const authorName =
+             normalizeSpace(name);
+
+         const encodedName =
+             encodeURIComponent(authorName)
+                 .replace(/%20/g, "+");
+
+         // Use an explicit parameter so the
+         // destination userscript always knows
+         // which Scopus author was requested.
+
+         const url = new URL(
+             RETRACTION_BASE_URL
+         );
+
+         url.searchParams.set(
+             "scopusAuthor",
+             authorName
+         );
+
+         // Retraction author search fragment.
+         // This is also passed to the website.
+
+         url.hash =
+             "?auth%3d" + encodedName;
+
+         return url.toString();
+     }
+
+     // =====================================================
+     // 12. RETRACTION CURRENT AUTHOR
+     // =====================================================
+
+     function getRequestedRetractionName() {
+
+         const params =
+             new URLSearchParams(
+                 window.location.search
+             );
+
+         const name =
+             params.get("scopusAuthor");
+
+         if (name) {
+
+             return normalizeSpace(name);
+
+         }
+
+         // Backward compatibility with v5.9
+
+         const oldName =
+             params.get("geName");
+
+         if (oldName) {
+
+             return normalizeSpace(oldName);
+
+         }
+
+         return "";
+     }
+
+     // =====================================================
+     // 13. FIND RETRACTION AUTHOR INPUT
+     // =====================================================
+
+     function findRetractionAuthorInput() {
+
+         const selectors = [
+
+             'input[name="author"]',
+
+             'input[name="Author"]',
+
+             'input[name="auth"]',
+
+             'input[id*="author" i]',
+
+             'input[name*="author" i]',
+
+             'input[placeholder*="author" i]',
+
+             'input[aria-label*="author" i]',
+
+             'input[id*="auth" i]',
+
+             'input[name*="auth" i]'
+
+         ];
+
+         for (const selector of selectors) {
+
+             const elements =
+                 document.querySelectorAll(selector);
+
+             for (const element of elements) {
+
+                 if (
+                     isVisible(element) &&
+                     !element.disabled &&
+                     !element.readOnly
+                 ) {
+
+                     return element;
+
+                 }
+             }
+         }
+
+         // Fallback: look for a field near an
+         // "Author" label.
+
+         const labels =
+             document.querySelectorAll(
+                 "label, th, td, span"
+             );
+
+         for (const label of labels) {
+
+             const text =
+                 normalizeSpace(
+                     label.textContent
+                 );
+
+             if (
+                 !/^author(?:\s+name)?\s*:?\s*$/i.test(text)
+             ) {
+
+                 continue;
+             }
+
+             if (
+                 label.htmlFor
+             ) {
+
+                 const linkedInput =
+                     document.getElementById(
+                         label.htmlFor
+                     );
+
+                 if (
+                     linkedInput &&
+                     isVisible(linkedInput)
+                 ) {
+
+                     return linkedInput;
+
+                 }
+             }
+
+             const parent =
+                 label.closest(
+                     "tr, div, form"
+                 );
+
+             if (!parent) continue;
+
+             const input =
+                 parent.querySelector(
+                     'input[type="text"], input:not([type])'
+                 );
+
+             if (
+                 input &&
+                 isVisible(input) &&
+                 !input.disabled
+             ) {
+
+                 return input;
+
+             }
+         }
+
+         return null;
+     }
+
+     // =====================================================
+     // 14. RETRACTION SEARCH PAGE
+     // =====================================================
+
+     function runRetractionPage() {
+
+         const requestedName =
+             getRequestedRetractionName();
+
+         if (!requestedName) return;
+
+         console.log(
+             "[Scopus Helper] Requested Retraction author:",
+             requestedName
+         );
+
+         let lastInput = null;
+
+         let lastAppliedValue = "";
+
+         function applyAuthorName() {
+
+             const input =
+                 findRetractionAuthorInput();
+
+             if (!input) {
+
+                 return;
+             }
+
+             const currentValue =
+                 normalizeSpace(
+                     input.value
+                 );
+
+             // Avoid repeatedly dispatching events
+             // when the value is already correct.
+
+             if (
+                 input === lastInput &&
+                 currentValue === requestedName &&
+                 lastAppliedValue === requestedName
+             ) {
+
+                 return;
+             }
+
+             if (
+                 currentValue !== requestedName
+             ) {
+
+                 fillInput(
+                     input,
+                     requestedName
+                 );
+
+             }
+
+             lastInput = input;
+
+             lastAppliedValue =
+                 requestedName;
+         }
+
+         // The website may render search inputs
+         // asynchronously, so retry briefly.
+
+         const start = Date.now();
+
+         const timer =
+             setInterval(() => {
+
+                 applyAuthorName();
+
+                 if (
+                     Date.now() - start > 12000
+                 ) {
+
+                     clearInterval(timer);
+
+                 }
+
+             }, 300);
+
+         applyAuthorName();
+
+         // Deliberately do not click an unknown
+         // search button. The URL already carries
+         // the author search fragment.
+     }
+
+     // =====================================================
+     // 15. MDPI URL SETTINGS
+     // =====================================================
+
+     function getMdpiInternalUrl() {
+
+         return GM_getValue(
+             MDPI_URL_STORAGE_KEY,
+             DEFAULT_MDPI_INTERNAL_URL
+         );
+     }
+
+     function normalizeMdpiUrl(rawUrl) {
+
+         const value =
+             normalizeSpace(rawUrl);
+
+         if (!value) {
+
+             throw new Error(
+                 "请输入 MDPI 内部网页地址。"
+             );
+
+         }
+
+         let parsed;
+
+         try {
+
+             parsed = new URL(value);
+
+         } catch (error) {
+
+             throw new Error(
+                 "网页地址格式不正确。"
+             );
+
+         }
+
+         if (
+             parsed.protocol !== "https:" ||
+             parsed.hostname !== "susy.mdpi.com" ||
+             !parsed.pathname.startsWith(
+                 "/special_issue/process/"
+             )
+         ) {
+
+             throw new Error(
+                 "请输入有效的 MDPI Special Issue Process 网页地址。"
+             );
+
+         }
+
+         parsed.search = "";
+         parsed.hash = "";
+
+         return parsed.toString()
+             .replace(/\/$/, "");
+     }
+
+     function buildMdpiUrl(email) {
+
+         const target = new URL(
+             getMdpiInternalUrl()
+         );
+
+         target.searchParams.set(
+             "geEmail",
+             email
+         );
+
+         return target.toString();
+     }
+
+     function openMdpiForEmail(email) {
+
+         window.open(
+             buildMdpiUrl(email),
+             "_blank"
+         );
+     }
+
+     // =====================================================
+     // 16. MDPI SETTINGS DIALOG
+     // =====================================================
+
+     function showMdpiSettingsDialog() {
+
+         document.getElementById(
+             MDPI_SETTINGS_ID
+         )?.remove();
+
+         const overlay =
+             document.createElement("div");
+
+         overlay.id =
+             MDPI_SETTINGS_ID;
+
+         Object.assign(
+             overlay.style,
+             {
+                 position: "fixed",
+                 inset: "0",
+                 zIndex: "1000000",
+                 display: "flex",
+                 alignItems: "center",
+                 justifyContent: "center",
+                 background:
+                     "rgba(0,0,0,0.38)"
+             }
+         );
+
+         const panel =
+             document.createElement("div");
+
+         Object.assign(
+             panel.style,
+             {
+                 width:
+                     "min(620px, calc(100vw - 40px))",
+                 padding: "22px",
+                 boxSizing: "border-box",
+                 borderRadius: "12px",
+                 background: "#ffffff",
+                 boxShadow:
+                     "0 8px 30px rgba(0,0,0,0.28)",
+                 fontFamily:
+                     "Arial, sans-serif"
+             }
+         );
+
+         const title =
+             document.createElement("h3");
+
+         title.textContent =
+             "MDPI 邮箱验证网页设置";
+
+         title.style.color = "#222";
+
+         title.style.marginTop = "0";
+
+         const description =
+             document.createElement("p");
+
+         description.textContent =
+             "保存后将持续使用该地址，除非再次修改或恢复默认。";
+
+         description.style.color =
+             "#595959";
+
+         description.style.fontSize =
+             "13px";
+
+         const input =
+             document.createElement("input");
+
+         input.type = "url";
+
+         input.value =
+             getMdpiInternalUrl();
+
+         input.placeholder =
+             "https://susy.mdpi.com/special_issue/process/...";
+
+         Object.assign(
+             input.style,
+             {
+                 width: "100%",
+                 padding: "10px",
+                 boxSizing: "border-box",
+                 border: "1px solid #ccc",
+                 borderRadius: "6px",
+                 fontSize: "14px"
+             }
+         );
+
+         const status =
+             document.createElement("div");
+
+         status.style.minHeight = "20px";
+
+         status.style.marginTop = "10px";
+
+         status.style.fontSize = "12px";
+
+         const actions =
+             document.createElement("div");
+
+         Object.assign(
+             actions.style,
+             {
+                 display: "flex",
+                 justifyContent: "flex-end",
+                 flexWrap: "wrap",
+                 gap: "8px",
+                 marginTop: "12px"
+             }
+         );
+
+         function addAction(
+             text,
+             color,
+             handler
+         ) {
+
+             const button =
+                 createButton(
+                     text,
+                     color,
+                     handler
+                 );
+
+             actions.appendChild(button);
+         }
+
+         if (isMdpiPage()) {
+
+             addAction(
+                 "使用当前页面",
+                 "#722ed1",
+                 () => {
+
+                     input.value =
+                         window.location.origin +
+                         window.location.pathname;
+
+                     status.textContent =
+                         "已填入当前网页地址。";
+
+                 }
+             );
+         }
+
+         addAction(
+             "恢复默认",
+             "#8c8c8c",
+             () => {
+
+                 input.value =
+                     DEFAULT_MDPI_INTERNAL_URL;
+
+                 status.textContent =
+                     "已恢复默认地址，点击保存生效。";
+
+             }
+         );
+
+         addAction(
+             "取消",
+             "#8c8c8c",
+             () => overlay.remove()
+         );
+
+         addAction(
+             "保存",
+             "#1677ff",
+             () => {
+
+                 try {
+
+                     const normalized =
+                         normalizeMdpiUrl(
+                             input.value
+                         );
+
+                     GM_setValue(
+                         MDPI_URL_STORAGE_KEY,
+                         normalized
+                     );
+
+                     status.textContent =
+                         "保存成功。";
+
+                     status.style.color =
+                         "#389e0d";
+
+                     setTimeout(
+                         () => overlay.remove(),
+                         700
+                     );
+
+                 } catch (error) {
+
+                     status.textContent =
+                         error.message;
+
+                     status.style.color =
+                         "#cf1322";
+
+                 }
+             }
+         );
+
+         panel.appendChild(title);
+
+         panel.appendChild(
+             description
+         );
+
+         panel.appendChild(input);
+
+         panel.appendChild(status);
+
+         panel.appendChild(actions);
+
+         overlay.appendChild(panel);
+
+         document.body.appendChild(
+             overlay
+         );
+
+         overlay.addEventListener(
+             "mousedown",
+             event => {
+
+                 if (
+                     event.target === overlay
+                 ) {
+
+                     overlay.remove();
+
+                 }
+             }
+         );
+     }
+
+     // =====================================================
+     // 17. MDPI EMAIL INPUT
+     // =====================================================
+
+     function findEmailInput() {
+
+         const selectors = [
+
+             'input[type="email"]',
+
+             'input[name*="email" i]',
+
+             'input[id*="email" i]',
+
+             'input[placeholder*="email" i]'
+
+         ];
+
+         for (const selector of selectors) {
+
+             const elements =
+                 document.querySelectorAll(selector);
+
+             for (const element of elements) {
+
+                 if (
+                     isVisible(element) &&
+                     !element.disabled
+                 ) {
+
+                     return element;
+
+                 }
+             }
+         }
+
+         const labels =
+             document.querySelectorAll(
+                 "label, td, th, span"
+             );
+
+         for (const label of labels) {
+
+             const text =
+                 normalizeSpace(
+                     label.textContent
+                 );
+
+             if (
+                 !/email/i.test(text) ||
+                 text.length > 80
+             ) {
+
+                 continue;
+             }
+
+             const parent =
+                 label.closest(
+                     "tr, div, form"
+                 );
+
+             if (!parent) continue;
+
+             const input =
+                 parent.querySelector(
+                     'input[type="text"], input:not([type])'
+                 );
+
+             if (
+                 input &&
+                 isVisible(input) &&
+                 !input.disabled
+             ) {
+
+                 return input;
+
+             }
+         }
+
+         return null;
+     }
+
+     // =====================================================
+     // 18. MDPI NEXT BUTTON
+     // =====================================================
+
+     function findCorrectNextButton(input) {
+
+         const buttons = Array.from(
+             document.querySelectorAll(
+                 "button, input[type='button'], input[type='submit'], a"
+             )
+         );
+
+         const nextButtons =
+             buttons.filter(element => {
+
+                 const text =
+                     normalizeSpace(
+                         element.innerText ||
+                         element.value
+                     ).toLowerCase();
+
+                 return (
+                     text === "next" &&
+                     isVisible(element)
+                 );
+             });
+
+         if (!nextButtons.length) {
+             return null;
+         }
+
+         const inputRect =
+             input.getBoundingClientRect();
+
+         nextButtons.sort(
+             (a, b) => {
+
+                 const rectA =
+                     a.getBoundingClientRect();
+
+                 const rectB =
+                     b.getBoundingClientRect();
+
+                 const distanceA =
+                     Math.abs(
+                         rectA.top -
+                         inputRect.bottom
+                     ) +
+                     Math.abs(
+                         rectA.left -
+                         inputRect.left
+                     );
+
+                 const distanceB =
+                     Math.abs(
+                         rectB.top -
+                         inputRect.bottom
+                     ) +
+                     Math.abs(
+                         rectB.left -
+                         inputRect.left
+                     );
+
+                 return (
+                     distanceA - distanceB
+                 );
+             }
+         );
+
+         return nextButtons[0];
+     }
+
+     // =====================================================
+     // 19. CLOSE MDPI POPUP
+     // =====================================================
+
+     function closeMdpiPopup() {
+
+         const candidates = Array.from(
+             document.querySelectorAll(
+                 "button, a, span, div"
+             )
+         );
+
+         const closeButton =
+             candidates.find(element => {
+
+                 const text =
+                     normalizeSpace(
+                         element.innerText ||
+                         element.textContent
+                     );
+
+                 const aria =
+                     (
+                         element.getAttribute(
+                             "aria-label"
+                         ) || ""
+                     ).toLowerCase();
+
+                 const className =
+                     String(
+                         element.className || ""
+                     ).toLowerCase();
+
+                 return (
+                     (text === "×" ||
+                      text === "x" ||
+                      aria.includes("close") ||
+                      className.includes("close")) &&
+                     isVisible(element)
+                 );
+             });
+
+         if (closeButton) {
+
+             closeButton.click();
+
+         }
+     }
+
+     // =====================================================
+     // 20. MDPI AUTO VERIFICATION
+     // =====================================================
+
+     function runMdpiPage() {
+
+         const params =
+             new URLSearchParams(
+                 window.location.search
+             );
+
+         const email =
+             params.get("geEmail");
+
+         createMdpiSettingsLauncher();
+
+         if (!email) return;
+
+         closeMdpiPopup();
+
+         waitForElement(
+             findEmailInput,
+             input => {
+
+                 fillInput(
+                     input,
+                     email
+                 );
+
+                 waitForElement(
+                     () =>
+                         findCorrectNextButton(
+                             input
+                         ),
+                     nextButton => {
+
+                         nextButton.click();
+
+                         setTimeout(
+                             closeMdpiPopup,
+                             300
+                         );
+
+                         setTimeout(
+                             closeMdpiPopup,
+                             800
+                         );
+
+                         setTimeout(
+                             closeMdpiPopup,
+                             1500
+                         );
+
+                     },
+                     5000
+                 );
+             },
+             10000
+         );
+     }
+
+     // =====================================================
+     // 21. MDPI SETTINGS LAUNCHER
+     // =====================================================
+
+     function createMdpiSettingsLauncher() {
+
+         const buttonId =
+             "mdpi-url-settings-launcher";
+
+         if (
+             document.getElementById(
+                 buttonId
+             )
+         ) {
+
+             return;
+
+         }
+
+         const button =
+             createButton(
+                 "⚙ 设置为邮箱验证页",
+                 "#1677ff",
+                 showMdpiSettingsDialog
+             );
+
+         button.id = buttonId;
+
+         Object.assign(
+             button.style,
+             {
+                 position: "fixed",
+                 right: "20px",
+                 bottom: "20px",
+                 zIndex: "999999",
+                 boxShadow:
+                     "0 3px 12px rgba(0,0,0,0.25)"
+             }
+         );
+
+         document.body.appendChild(
+             button
+         );
+     }
+
+     // =====================================================
+     // 22. SELECTED EMAIL FLOATING BUTTON
+     // =====================================================
+
+     function createSelectedEmailMdpiButton() {
+
+         if (isMdpiPage()) return;
+
+         if (
+             document.getElementById(
+                 SELECTED_EMAIL_BUTTON_ID
+             )
+         ) {
+
+             return;
+
+         }
+
+         const button =
+             createButton(
+                 "MDPI",
+                 "#1677ff",
+                 () => {
+
+                     if (!currentSelectedEmail) {
+                         return;
+                     }
+
+                     GM_setClipboard(
+                         currentSelectedEmail
+                     );
+
+                     openMdpiForEmail(
+                         currentSelectedEmail
+                     );
+                 }
+             );
+
+         button.id =
+             SELECTED_EMAIL_BUTTON_ID;
+
+         Object.assign(
+             button.style,
+             {
+                 position: "absolute",
+                 zIndex: "999999",
+                 padding: "6px 12px",
+                 fontSize: "12px",
+                 display: "none",
+                 boxShadow:
+                     "0 3px 10px rgba(0,0,0,0.25)"
+             }
+         );
+
+         document.body.appendChild(
+             button
+         );
+
+         let currentSelectedEmail = "";
+
+         document.addEventListener(
+             "mouseup",
+             () => {
+
+                 setTimeout(
+                     () => {
+
+                         const selection =
+                             window.getSelection();
+
+                         if (
+                             !selection ||
+                             selection.rangeCount === 0
+                         ) {
+
+                             button.style.display =
+                                 "none";
+
+                             return;
+                         }
+
+                         const text =
+                             normalizeSpace(
+                                 selection.toString()
+                             );
+
+                         const match =
+                             text.match(
+                                 /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+                             );
+
+                         if (!match) {
+
+                             currentSelectedEmail =
+                                 "";
+
+                             button.style.display =
+                                 "none";
+
+                             return;
+                         }
+
+                         currentSelectedEmail =
+                             match[0];
+
+                         const rect =
+                             selection.getRangeAt(0)
+                                 .getBoundingClientRect();
+
+                         button.style.left =
+                             (
+                                 rect.right +
+                                 window.scrollX +
+                                 8
+                             ) + "px";
+
+                         button.style.top =
+                             (
+                                 rect.top +
+                                 window.scrollY -
+                                 4
+                             ) + "px";
+
+                         button.style.display =
+                             "block";
+
+                     },
+                     80
+                 );
+             }
+         );
+
+         document.addEventListener(
+             "mousedown",
+             event => {
+
+                 if (
+                     event.target === button
+                 ) {
+
+                     return;
+                 }
+
+                 button.style.display =
+                     "none";
+             }
+         );
+     }
+
+     // =====================================================
+     // 23. PUBPEER
+     // =====================================================
+
+     function runPubPeerPage() {
+
+         // PubPeer URL already contains q=.
+         // No extra search click required.
+
+         return;
+     }
+
+     // =====================================================
+     // 24. INITIALIZATION
+     // =====================================================
+
+     function initialize() {
+
+         console.log(
+             "[Scopus Helper] v" +
+             VERSION +
+             " initialized."
+         );
+
+         if (isScopusPage()) {
+
+             startScopusMonitor();
+
+         } else if (isMdpiPage()) {
+
+             runMdpiPage();
+
+         } else if (isPubPeerPage()) {
+
+             runPubPeerPage();
+
+         } else if (isRetractionPage()) {
+
+             runRetractionPage();
+
+         }
+
+         // General selected-email feature
+
+         createSelectedEmailMdpiButton();
+     }
+
+     if (
+         document.readyState === "loading"
+     ) {
+
+         document.addEventListener(
+             "DOMContentLoaded",
+             initialize,
+             {
+                 once: true
+             }
+         );
+
+     } else {
+
+         initialize();
+
+     }
+
+ })();
