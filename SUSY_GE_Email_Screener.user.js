@@ -1,4 +1,4 @@
-/ ==UserScript==
+ // ==UserScript==
  // @name         SUSY GE Email Screener
  // @namespace    MDPI-SUSY-Verification-Screener
  // @version      2.3
