@@ -1,12 +1,14 @@
- // ==UserScript==
+/ ==UserScript==
  // @name         SUSY GE Email Screener
  // @namespace    MDPI-SUSY-Verification-Screener
- // @version      2.2
+ // @version      2.3
  // @description  根据 Proceed / Edit+Back 筛选可邀请 GE 的邮箱
  // @match        https://susy.mdpi.com/special_issue/process/*
  // @grant        GM_setClipboard
  // @run-at       document-idle
  // @author       Jiali Tang
+ // @updateURL    https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/SUSY_GE_Email_Screener.user.js
+ // @downloadURL  https://raw.githubusercontent.com/scarlett-personaluse/scopus-mdpi-helper/main/SUSY_GE_Email_Screener.user.js
  // ==/UserScript==
 
  (function () {
